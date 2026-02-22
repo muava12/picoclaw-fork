@@ -52,6 +52,7 @@ jobs:
 
       - name: Restrict GoReleaser to linux/arm64
         run: |
+          yq -i '.project_name = "picoclaw"' .goreleaser.yaml
           yq -i '.builds[0].goos = ["linux"]' .goreleaser.yaml
           yq -i '.builds[0].goarch = ["arm64"]' .goreleaser.yaml
           yq -i 'del(.builds[0].ignore)' .goreleaser.yaml
@@ -61,7 +62,7 @@ jobs:
         with:
           distribution: goreleaser
           version: ~> v2
-          args: build --clean --snapshot
+          args: release --clean --snapshot
         env:
           GOVERSION: ${{ steps.setup-go.outputs.go-version }}
           # Override GORELEASER_CURRENT_TAG agar binary terkompilasi dengan versi yang benar
@@ -71,14 +72,14 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: picoclaw-linux-arm64-${{ env.FORK_VERSION }}
-          path: dist/*linux_arm64*/picoclaw*
+          path: dist/*.tar.gz
           if-no-files-found: warn
 
       - name: Create GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release create "${{ env.FORK_VERSION }}" dist/*linux_arm64*/picoclaw* \
+          gh release create "${{ env.FORK_VERSION }}" dist/*.tar.gz \
             --title "Fork Build ${{ env.FORK_VERSION }}" \
             --notes "Automated release from branch ${{ github.ref_name }}."
 
