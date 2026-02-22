@@ -20,6 +20,21 @@
 
 ---
 
+> [!TIP]
+> ### ⚡ TL;DR — Quick Install (Linux ARM64)
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/muava12/picoclaw-fork/main/install_picoclaw.sh | bash
+> ```
+>
+> Script ini otomatis download binary `picoclaw` terbaru untuk **ARM64**, install ke `~/.local/bin`, dan setup PATH.
+> Kamu bisa pilih versi **Original** (sipeed) atau **Fork** (muava12) saat install.
+>
+> Setelah selesai, jalankan:
+> ```bash
+> picoclaw onboard
+> ```
+
 🦐 PicoClaw is an ultra-lightweight personal AI Assistant inspired by [nanobot](https://github.com/HKUDS/nanobot), refactored from the ground up in Go through a self-bootstrapping process, where the AI agent itself drove the entire architectural migration and code optimization.
 
 ⚡️ Runs on $10 hardware with <10MB RAM: That's 99% less memory than OpenClaw and 98% cheaper than a Mac mini!
