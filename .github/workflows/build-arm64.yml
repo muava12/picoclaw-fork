@@ -56,6 +56,7 @@ jobs:
           yq -i '.builds[0].goos = ["linux"]' .goreleaser.yaml
           yq -i '.builds[0].goarch = ["arm64"]' .goreleaser.yaml
           yq -i 'del(.builds[0].ignore)' .goreleaser.yaml
+          yq -i 'del(.dockers_v2)' .goreleaser.yaml
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v6
