@@ -1,0 +1,93 @@
+name: Build Linux ARM64 (GoReleaser)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-arm64:
+    name: Build Linux ARM64
+    runs-on: ubuntu-latest
+    steps:
+      - name: 📢 Notify Start
+        run: |
+          curl \
+            -H "Title: Deploy picoclaw Linux ARM64 Started 🚀" \
+            -H "Tags: rocket,construction_worker" \
+            -H "Priority: default" \
+            -d "Branch: ${{ github.ref_name }} | Commit: ${{ github.sha }}" \
+            https://ntfy.sh/deploy-on-github-xasr6KBz47PjswPf53A78Fib
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Go
+        id: setup-go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Determine Fork Version
+        id: version
+        run: |
+          # Dapatkan tag terbaru dari repo asli (misal: v0.1.2)
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          
+          # Format increment number menggunakan run number (misal: 01, 02)
+          RUN_NUM=$(printf "%02d" ${{ github.run_number }})
+          
+          # Gabungkan menjadi versi custom untuk fork
+          FORK_VERSION="${LATEST_TAG}-fork-${RUN_NUM}"
+          
+          echo "Ditemukan tag upstream: $LATEST_TAG"
+          echo "Versi fork yang digunakan: $FORK_VERSION"
+          echo "FORK_VERSION=$FORK_VERSION" >> $GITHUB_ENV
+
+      - name: Restrict GoReleaser to linux/arm64
+        run: |
+          yq -i '.builds[0].goos = ["linux"]' .goreleaser.yaml
+          yq -i '.builds[0].goarch = ["arm64"]' .goreleaser.yaml
+          yq -i 'del(.builds[0].ignore)' .goreleaser.yaml
+
+      - name: Run GoReleaser
+        uses: goreleaser/goreleaser-action@v6
+        with:
+          distribution: goreleaser
+          version: ~> v2
+          args: build --clean --snapshot
+        env:
+          GOVERSION: ${{ steps.setup-go.outputs.go-version }}
+          # Override GORELEASER_CURRENT_TAG agar binary terkompilasi dengan versi yang benar
+          GORELEASER_CURRENT_TAG: ${{ env.FORK_VERSION }}
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: picoclaw-linux-arm64-${{ env.FORK_VERSION }}
+          path: dist/*linux_arm64*/picoclaw*
+          if-no-files-found: warn
+
+      - name: 📢 Notify Success
+        if: success()
+        run: |
+          curl \
+            -H "Title: Deploy picoclaw Linux ARM64 Success ✅" \
+            -H "Tags: white_check_mark,partying_face" \
+            -H "Priority: high" \
+            -d "Build artifact picoclaw-linux-arm64-${{ env.FORK_VERSION }} has been successfully uploaded." \
+            https://ntfy.sh/deploy-on-github-xasr6KBz47PjswPf53A78Fib
+
+      - name: 📢 Notify Failure
+        if: failure()
+        run: |
+          curl \
+            -H "Title: Deploy picoclaw Linux ARM64 Failed ❌" \
+            -H "Tags: x,skull" \
+            -H "Priority: urgent" \
+            -d "Build failed on branch ${{ github.ref_name }}. Please check the GitHub Actions logs." \
+            https://ntfy.sh/deploy-on-github-xasr6KBz47PjswPf53A78Fib
