@@ -69,7 +69,9 @@ fi
 
 # Check if already installed
 if [ -f "$INSTALL_DIR/$BINARY_NAME" ]; then
-    INSTALLED_VERSION=$("$INSTALL_DIR/$BINARY_NAME" --version 2>/dev/null | grep -oP '\d+\.\d+\.\d+' | head -1)
+    INSTALLED_VERSION=$("$INSTALL_DIR/$BINARY_NAME" --version 2>/dev/null | sed -n 's/.*\(v\?[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*[^ ]*\).*/\1/p' | head -1)
+    # Strip 'v' prefix if present
+    INSTALLED_VERSION=${INSTALLED_VERSION#v}
     if [ -n "$INSTALLED_VERSION" ]; then
         print_success "Already installed: $BINARY_NAME v$INSTALLED_VERSION"
         
@@ -85,9 +87,13 @@ if [ -f "$INSTALL_DIR/$BINARY_NAME" ]; then
                 exit 0
             else
                 echo ""
-                echo -e "${YELLOW}!${RESET} Update available: v$INSTALLED_VERSION → $VERSION"
+                echo -e "${BLUE}!${RESET} Update available: v$INSTALLED_VERSION → $VERSION"
                 echo ""
-                read -p "Do you want to update? [y/N] " -n 1 -r
+                if [ -t 0 ]; then
+                    read -p "Do you want to update? [y/N] " -n 1 -r
+                else
+                    read -p "Do you want to update? [y/N] " -n 1 -r < /dev/tty
+                fi
                 echo ""
                 if [[ ! $REPLY =~ ^[Yy]$ ]]; then
                     print_step "Update cancelled"
