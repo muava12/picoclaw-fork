@@ -123,3 +123,29 @@ func TestParseModelRef_DefaultProviderNormalization(t *testing.T) {
 		t.Errorf("provider = %q, want openai (normalized from GPT)", ref.Provider)
 	}
 }
+
+func TestParseModelRef_OpenRouterNestedModelWithExplicitProvider(t *testing.T) {
+	ref := ParseModelRef("openrouter/stepfun/step-3.5-flash:free", "openai")
+	if ref == nil {
+		t.Fatal("expected non-nil ref")
+	}
+	if ref.Provider != "openrouter" {
+		t.Errorf("provider = %q, want openrouter", ref.Provider)
+	}
+	if ref.Model != "stepfun/step-3.5-flash:free" {
+		t.Errorf("model = %q, want stepfun/step-3.5-flash:free", ref.Model)
+	}
+}
+
+func TestParseModelRef_UnknownPrefixUsesDefaultProvider(t *testing.T) {
+	ref := ParseModelRef("stepfun/step-3.5-flash:free", "openrouter")
+	if ref == nil {
+		t.Fatal("expected non-nil ref")
+	}
+	if ref.Provider != "openrouter" {
+		t.Errorf("provider = %q, want openrouter", ref.Provider)
+	}
+	if ref.Model != "stepfun/step-3.5-flash:free" {
+		t.Errorf("model = %q, want stepfun/step-3.5-flash:free", ref.Model)
+	}
+}

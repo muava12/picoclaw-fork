@@ -18,17 +18,33 @@ func ParseModelRef(raw string, defaultProvider string) *ModelRef {
 	}
 
 	if idx := strings.Index(raw, "/"); idx > 0 {
-		provider := NormalizeProvider(raw[:idx])
-		model := strings.TrimSpace(raw[idx+1:])
-		if model == "" {
-			return nil
+		prefix := strings.TrimSpace(raw[:idx])
+		if isKnownProviderPrefix(prefix) {
+			provider := NormalizeProvider(prefix)
+			model := strings.TrimSpace(raw[idx+1:])
+			if model == "" {
+				return nil
+			}
+			return &ModelRef{Provider: provider, Model: model}
 		}
-		return &ModelRef{Provider: provider, Model: model}
 	}
 
 	return &ModelRef{
 		Provider: NormalizeProvider(defaultProvider),
 		Model:    raw,
+	}
+}
+
+func isKnownProviderPrefix(prefix string) bool {
+	switch NormalizeProvider(prefix) {
+	case "openai", "anthropic", "openrouter", "groq", "zhipu", "gemini",
+		"nvidia", "ollama", "moonshot", "shengsuanyun", "deepseek", "cerebras",
+		"volcengine", "vllm", "qwen-portal", "mistral", "antigravity",
+		"claude-cli", "claudecli", "codex-cli", "codexcli", "github-copilot",
+		"github_copilot", "copilot", "zai", "opencode", "kimi-coding":
+		return true
+	default:
+		return false
 	}
 }
 
