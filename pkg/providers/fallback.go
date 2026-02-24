@@ -122,11 +122,9 @@ func (fc *FallbackChain) Execute(
 			return nil, context.Canceled
 		}
 
-		key := ModelKey(candidate.Provider, candidate.Model)
-
 		// Check cooldown.
-		if !fc.cooldown.IsAvailable(key) {
-			remaining := fc.cooldown.CooldownRemaining(key)
+		if !fc.cooldown.IsAvailable(candidate.Provider) {
+			remaining := fc.cooldown.CooldownRemaining(candidate.Provider)
 			result.Attempts = append(result.Attempts, FallbackAttempt{
 				Provider: candidate.Provider,
 				Model:    candidate.Model,
@@ -147,7 +145,7 @@ func (fc *FallbackChain) Execute(
 
 		if err == nil {
 			// Success.
-			fc.cooldown.MarkSuccess(key)
+			fc.cooldown.MarkSuccess(candidate.Provider)
 			result.Response = resp
 			result.Provider = candidate.Provider
 			result.Model = candidate.Model
@@ -193,7 +191,7 @@ func (fc *FallbackChain) Execute(
 		}
 
 		// Retriable error: mark failure and continue to next candidate.
-		fc.cooldown.MarkFailure(key, failErr.Reason)
+		fc.cooldown.MarkFailure(candidate.Provider, failErr.Reason)
 		result.Attempts = append(result.Attempts, FallbackAttempt{
 			Provider: candidate.Provider,
 			Model:    candidate.Model,
