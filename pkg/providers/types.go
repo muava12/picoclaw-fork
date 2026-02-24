@@ -39,13 +39,14 @@ type StatefulProvider interface {
 type FailoverReason string
 
 const (
-	FailoverAuth       FailoverReason = "auth"
-	FailoverRateLimit  FailoverReason = "rate_limit"
-	FailoverBilling    FailoverReason = "billing"
-	FailoverTimeout    FailoverReason = "timeout"
-	FailoverFormat     FailoverReason = "format"
-	FailoverOverloaded FailoverReason = "overloaded"
-	FailoverUnknown    FailoverReason = "unknown"
+	FailoverAuth         FailoverReason = "auth"
+	FailoverRateLimit    FailoverReason = "rate_limit"
+	FailoverBilling      FailoverReason = "billing"
+	FailoverTimeout      FailoverReason = "timeout"
+	FailoverFormat       FailoverReason = "format"
+	FailoverOverloaded   FailoverReason = "overloaded"
+	FailoverModelInvalid FailoverReason = "model_invalid"
+	FailoverUnknown      FailoverReason = "unknown"
 )
 
 // FailoverError wraps an LLM provider error with classification metadata.
@@ -70,6 +71,11 @@ func (e *FailoverError) Unwrap() error {
 // Non-retriable: Format errors (bad request structure, image dimension/size).
 func (e *FailoverError) IsRetriable() bool {
 	return e.Reason != FailoverFormat
+}
+
+// IsModelInvalid returns true if this error is due to an invalid/unavailable model.
+func (e *FailoverError) IsModelInvalid() bool {
+	return e.Reason == FailoverModelInvalid
 }
 
 // ModelConfig holds primary model and fallback list.

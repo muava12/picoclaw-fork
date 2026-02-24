@@ -557,6 +557,22 @@ func (al *AgentLoop) runLLMIteration(
 					logger.InfoCF("agent", fmt.Sprintf("Fallback: succeeded with %s/%s after %d attempts",
 						fbResult.Provider, fbResult.Model, len(fbResult.Attempts)+1),
 						map[string]any{"agent_id": agent.ID, "iteration": iteration})
+
+					// Send warning for model-invalid errors so user knows to fix config
+					if !constants.IsInternalChannel(opts.Channel) {
+						for _, attempt := range fbResult.Attempts {
+							if failErr, ok := attempt.Error.(*providers.FailoverError); ok && failErr.IsModelInvalid() {
+								al.bus.PublishOutbound(bus.OutboundMessage{
+									Channel: opts.Channel,
+									ChatID:  opts.ChatID,
+									Content: fmt.Sprintf("⚠️ Model %s/%s is invalid or unavailable: %v\nUsing fallback: %s/%s",
+										attempt.Provider, attempt.Model, failErr.Wrapped,
+										fbResult.Provider, fbResult.Model),
+								})
+								break // Only send one warning even if multiple model-invalid errors
+							}
+						}
+					}
 				}
 				return fbResult.Response, nil
 			}

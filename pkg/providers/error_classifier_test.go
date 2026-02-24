@@ -207,6 +207,59 @@ func TestClassifyError_FormatPatterns(t *testing.T) {
 	}
 }
 
+func TestClassifyError_ModelInvalidPatterns(t *testing.T) {
+	patterns := []string{
+		"nemotron-3-nano-30b-a3b:free is not a valid model ID",
+		"model not found",
+		"model_not_found: the requested model does not exist",
+		"model not available in this region",
+		"the model does not exist or you do not have access",
+		"no such model: gpt-5-turbo",
+		"invalid model specified",
+		"model llama-3-8b is not supported",
+		"model gpt-4o-mini is unavailable",
+		"model codellama is deprecated",
+	}
+
+	for _, msg := range patterns {
+		err := errors.New(msg)
+		result := ClassifyError(err, "nvidia", "test-model")
+		if result == nil {
+			t.Errorf("pattern %q: expected non-nil", msg)
+			continue
+		}
+		if result.Reason != FailoverModelInvalid {
+			t.Errorf("pattern %q: reason = %q, want model_invalid", msg, result.Reason)
+		}
+		if !result.IsRetriable() {
+			t.Errorf("pattern %q: should be retriable to allow fallback", msg)
+		}
+		if !result.IsModelInvalid() {
+			t.Errorf("pattern %q: should be classified as model invalid", msg)
+		}
+	}
+}
+
+func TestClassifyError_ModelInvalid_OverridesStatus400(t *testing.T) {
+	// This is the exact production error: status 400 + "not a valid model".
+	// Before the fix, status 400 was classified as FailoverFormat (non-retriable),
+	// which prevented fallback to other models.
+	err := fmt.Errorf("API request failed:\n  Status: 400\n  Body:   {\"error\":{\"message\":\"nemotron-3-nano-30b-a3b:free is not a valid model ID\",\"code\":400}}")
+	result := ClassifyError(err, "nvidia", "nemotron-3-nano-30b-a3b:free")
+	if result == nil {
+		t.Fatal("expected non-nil for model-invalid 400 error")
+	}
+	if result.Reason != FailoverModelInvalid {
+		t.Errorf("reason = %q, want model_invalid (should override status 400)", result.Reason)
+	}
+	if !result.IsRetriable() {
+		t.Error("model-invalid error should be retriable to allow fallback to next model")
+	}
+	if !result.IsModelInvalid() {
+		t.Error("should be classified as model invalid")
+	}
+}
+
 func TestClassifyError_ImageDimensionError(t *testing.T) {
 	err := errors.New("image dimensions exceed max allowed 2048x2048")
 	result := ClassifyError(err, "openai", "gpt-4o")
@@ -264,6 +317,7 @@ func TestFailoverError_IsRetriable(t *testing.T) {
 		{FailoverBilling, true},
 		{FailoverTimeout, true},
 		{FailoverOverloaded, true},
+		{FailoverModelInvalid, true},
 		{FailoverFormat, false},
 		{FailoverUnknown, true},
 	}
