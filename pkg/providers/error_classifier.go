@@ -78,20 +78,6 @@ var (
 		substr("invalid request format"),
 	}
 
-	// Model invalid/not found patterns: these are 400 errors that should be
-	// retriable (fallback to next model), NOT treated as format errors.
-	modelInvalidPatterns = []errorPattern{
-		substr("not a valid model"),
-		substr("model not found"),
-		substr("model_not_found"),
-		substr("model not available"),
-		substr("does not exist"),
-		substr("no such model"),
-		substr("invalid model"),
-		rxp(`model.*not.*supported`),
-		rxp(`model.*is.*unavailable`),
-		rxp(`model.*is.*deprecated`),
-	}
 
 	imageDimensionPatterns = []errorPattern{
 		rxp(`image dimensions exceed max`),
@@ -143,17 +129,6 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 		}
 	}
 
-	// Model invalid/not found: retriable, should fallback to another model.
-	// This MUST run before HTTP status classification, because 400 + "not a valid model"
-	// would otherwise be classified as non-retriable FailoverFormat.
-	if matchesAny(msg, modelInvalidPatterns) {
-		return &FailoverError{
-			Reason:   FailoverModelInvalid,
-			Provider: provider,
-			Model:    model,
-			Wrapped:  err,
-		}
-	}
 
 	// Try HTTP status code extraction.
 	if status := extractHTTPStatus(msg); status > 0 {
