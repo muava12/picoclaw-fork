@@ -169,7 +169,12 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 			response, err := al.processMessage(ctx, msg)
 			if err != nil {
-				response = fmt.Sprintf("Error processing message: %v", err)
+				// Error already sent to user channel by runAgentLoop, just log here
+				logger.ErrorCF("agent", "Message processing failed", map[string]any{
+					"error":   err.Error(),
+					"channel": msg.Channel,
+					"chat_id": msg.ChatID,
+				})
 			}
 
 			if response != "" {
