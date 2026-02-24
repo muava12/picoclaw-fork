@@ -131,11 +131,28 @@ if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     else
         print_success "Already configured in ~/.bashrc"
     fi
+    # Also add to ~/.zshrc if zsh is available
+    if [ -f "$HOME/.zshrc" ] && ! grep -q "$INSTALL_DIR" ~/.zshrc 2>/dev/null; then
+        echo '' >> ~/.zshrc
+        echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+        print_success "Added to ~/.zshrc"
+    fi
     export PATH="$INSTALL_DIR:$PATH"
     print_success "PATH updated for current session"
 else
     print_success "Already in PATH"
 fi
+
+# Reload shell config so picoclaw is immediately available
+print_step "Reloading shell config..."
+if [ -n "$BASH_VERSION" ] && [ -f "$HOME/.bashrc" ]; then
+    source "$HOME/.bashrc"
+elif [ -n "$ZSH_VERSION" ] && [ -f "$HOME/.zshrc" ]; then
+    source "$HOME/.zshrc"
+elif [ -f "$HOME/.bashrc" ]; then
+    source "$HOME/.bashrc"
+fi
+print_success "Done"
 
 echo ""
 echo -e "Run: ${BOLD}picoclaw onboard${RESET} to get started"
