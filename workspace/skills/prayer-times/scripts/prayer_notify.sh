@@ -7,6 +7,8 @@
 #   prayer_notify.sh notify <prayer> <time> — Send notification via ntfy + stdout
 #   prayer_notify.sh setup <city>           — Set city and fetch initial data
 #   prayer_notify.sh status                 — Show current config and data status
+#   prayer_notify.sh auto_schedule <channel> <chat_id>
+#                                           — Add cron jobs via CLI (no AI)
 #
 # Config file: skills/prayer-times/data/config (co-located with skill)
 # Auto-fetch: schedule command auto-fetches if data is missing or stale
@@ -47,6 +49,34 @@ PRAYERS="$PRAYERS"
 NTFY_TOPIC="$NTFY_TOPIC"
 EOF
     echo "Config saved to $CONFIG_FILE"
+}
+
+# ---- Timezone mapping ----
+
+# Map Indonesian city to IANA timezone.
+# jadwalsholatorg data is in the city's local time,
+# so we need the correct TZ for epoch calculation.
+city_to_tz() {
+    local city="$1"
+    case "$city" in
+        # WIB (UTC+7) — Sumatra, Jawa, Kalimantan Barat/Tengah
+        dumai|pekanbaru|medan|padang|palembang|jambi|bengkulu|lampung|\
+        banda-aceh|batam|tanjung-pinang|pangkal-pinang|bandar-lampung|\
+        jakarta-pusat|jakarta-selatan|jakarta-barat|jakarta-timur|jakarta-utara|\
+        bogor|depok|tangerang|bekasi|bandung|semarang|yogyakarta|surabaya|\
+        malang|solo|cirebon|serang|pontianak|palangka-raya)
+            echo "Asia/Jakarta" ;;
+        # WITA (UTC+8) — Kalimantan Selatan/Timur/Utara, Sulawesi, Bali, NTB, NTT
+        samarinda|makassar|denpasar|balikpapan|banjarmasin|manado|gorontalo|\
+        palu|kendari|mamuju|mataram|kupang|tarakan|bontang)
+            echo "Asia/Makassar" ;;
+        # WIT (UTC+9) — Papua, Maluku
+        jayapura|ambon|manokwari|sorong|ternate|tual|merauke|fakfak)
+            echo "Asia/Jayapura" ;;
+        *)
+            # Default: try to infer from system TZ, fallback to WIB
+            echo "${TZ:-Asia/Jakarta}" ;;
+    esac
 }
 
 # ---- Helper functions ----
@@ -160,9 +190,13 @@ cmd_schedule() {
     # Filter: use args if provided, otherwise use config
     local filter="${*:-$PRAYERS}"
 
-    python3 -c "
-import json, sys, time
-from datetime import datetime
+    # Determine the correct timezone for this city
+    local city_tz
+    city_tz=$(city_to_tz "$CITY")
+
+    TZ="$city_tz" python3 -c "
+import json, sys, time, os
+from datetime import datetime, timezone, timedelta
 
 data = json.load(open('$json_path'))
 today = '$today'
@@ -258,6 +292,7 @@ cmd_notify() {
 cmd_status() {
     echo "=== Prayer Times Config ==="
     echo "Kota     : $CITY"
+    echo "Timezone : $(city_to_tz "$CITY")"
     echo "Sahur    : $SAHUR_MINS menit sebelum Shubuh"
     echo "Iftar    : $IFTAR_MINS menit sebelum Maghrib"
     echo "Prayers  : $PRAYERS"
@@ -284,19 +319,169 @@ cmd_status() {
     fi
 }
 
+# ---- Auto-schedule: add cron jobs via CLI, no AI needed ----
+
+cmd_auto_schedule() {
+    local channel="${1:-}"
+    local chat_id="${2:-}"
+
+    if [ -z "$channel" ] || [ -z "$chat_id" ]; then
+        echo "Usage: prayer_notify.sh auto_schedule <channel> <chat_id>"
+        exit 1
+    fi
+
+    ensure_data
+    local json_path today now_ts city_tz
+    json_path=$(get_json_path)
+    today=$(today_date)
+    now_ts=$(now_epoch)
+    city_tz=$(city_to_tz "$CITY")
+
+    local filter="$PRAYERS"
+
+    # First, remove old prayer one-time jobs from previous auto_schedule runs
+    local existing_jobs
+    existing_jobs=$(picoclaw cron list 2>/dev/null || true)
+    echo "$existing_jobs" | grep -oP '🕌.*?\((\K[^)]+)' | while read -r job_id; do
+        picoclaw cron remove "$job_id" 2>/dev/null || true
+    done
+
+    # Use Python to calculate times and output picoclaw cron add commands
+    local schedule_output
+    schedule_output=$(TZ="$city_tz" python3 - "$json_path" "$today" "$now_ts" \
+        "$SAHUR_MINS" "$IFTAR_MINS" "$filter" <<'PYTHON_EOF'
+import json, sys, time
+from datetime import datetime
+
+json_path, today, now_ts_s, sahur_mins_s, iftar_mins_s, filter_arg = sys.argv[1:7]
+
+now_ts = int(now_ts_s)
+sahur_mins = int(sahur_mins_s)
+iftar_mins = int(iftar_mins_s)
+
+data = json.load(open(json_path))
+entry = None
+for e in data:
+    if e['tanggal'] == today:
+        entry = e
+        break
+
+if not entry:
+    print('ERROR', file=sys.stderr)
+    sys.exit(1)
+
+def hhmm_to_epoch(hhmm):
+    h, m = map(int, hhmm.split(':'))
+    dt = datetime.strptime(today + f' {h:02d}:{m:02d}:00', '%Y-%m-%d %H:%M:%S')
+    return int(dt.timestamp())
+
+schedule = []
+shubuh_epoch = hhmm_to_epoch(entry['shubuh'])
+sahur_epoch = shubuh_epoch - (sahur_mins * 60)
+sahur_time = time.strftime('%H:%M', time.localtime(sahur_epoch))
+schedule.append(('sahur', sahur_time, sahur_epoch))
+
+for name in ['shubuh', 'dzuhur', 'ashr', 'magrib', 'isya']:
+    schedule.append((name, entry[name], hhmm_to_epoch(entry[name])))
+
+magrib_epoch = hhmm_to_epoch(entry['magrib'])
+iftar_epoch = magrib_epoch - (iftar_mins * 60)
+iftar_time = time.strftime('%H:%M', time.localtime(iftar_epoch))
+schedule.append(('iftar', iftar_time, iftar_epoch))
+
+# Filter
+wanted = set(f.strip().lower() for f in filter_arg.split())
+schedule = [s for s in schedule if s[0] in wanted]
+schedule.sort(key=lambda x: x[2])
+
+# Output future prayers: name|display_time|seconds_from_now
+for name, display_time, epoch in schedule:
+    diff = epoch - now_ts
+    if diff > 0:
+        print(f'{name}|{display_time}|{diff}')
+PYTHON_EOF
+    )
+
+    if [ -z "$schedule_output" ]; then
+        echo "ℹ️ Semua waktu sholat hari ini sudah lewat."
+        exit 0
+    fi
+
+    # Emoji and title maps
+    declare -A emoji_map=(
+        [sahur]="🌙" [shubuh]="🌅" [dzuhur]="☀️"
+        [ashr]="🌤️" [magrib]="🌇" [isya]="🌃" [iftar]="🍽️"
+    )
+    declare -A title_map=(
+        [sahur]="Waktu Sahur" [shubuh]="Waktu Shubuh" [dzuhur]="Waktu Dzuhur"
+        [ashr]="Waktu Ashar" [magrib]="Waktu Maghrib" [isya]="Waktu Isya"
+        [iftar]="Persiapan Buka Puasa"
+    )
+
+    local count=0
+    local summary="🕌 Reminder sholat $today ($CITY) sudah dijadwalkan:"
+
+    while IFS='|' read -r name display_time at_seconds; do
+        local emoji="${emoji_map[$name]:-🕌}"
+        local title="${title_map[$name]:-Waktu Sholat}"
+        local msg
+
+        if [ "$name" = "sahur" ]; then
+            msg="$emoji $title ($display_time) — Ayo bangun sahur! $SAHUR_MINS menit lagi waktu Imsyak."
+        elif [ "$name" = "iftar" ]; then
+            msg="$emoji $title ($display_time) — $IFTAR_MINS menit lagi waktu berbuka puasa!"
+        else
+            msg="$emoji $title ($display_time) — Saatnya menunaikan sholat $name."
+        fi
+
+        # Add Telegram delivery job
+        picoclaw cron add \
+            -n "🕌 $name $display_time" \
+            -m "$msg" \
+            --at "$at_seconds" \
+            -d \
+            --channel "$channel" \
+            --to "$chat_id" 2>/dev/null
+
+        # Add ntfy job if configured
+        if [ -n "$NTFY_TOPIC" ]; then
+            picoclaw cron add \
+                -n "🕌 ntfy:$name" \
+                -m "ntfy: $name" \
+                --at "$at_seconds" \
+                --command "bash $SCRIPT_DIR/prayer_notify.sh notify $name $display_time" \
+                --channel "$channel" \
+                --to "$chat_id" 2>/dev/null
+        fi
+
+        summary="$summary
+  $emoji ${title} ${display_time}"
+        count=$((count + 1))
+    done <<< "$schedule_output"
+
+    local ntfy_status="❌ tidak aktif"
+    [ -n "$NTFY_TOPIC" ] && ntfy_status="✅ aktif"
+
+    echo "$summary"
+    echo ""
+    echo "📍 Timezone: $(city_to_tz "$CITY")"
+    echo "📊 Total: $count reminder | ntfy: $ntfy_status"
+}
+
 # ---- Main ----
 
 load_config
 
 case "${1:-help}" in
-    setup)    shift; cmd_setup "$@" ;;
-    fetch)    cmd_fetch ;;
-    today)    cmd_today ;;
-    schedule) shift; cmd_schedule "$@" ;;
-    notify)   shift; cmd_notify "$@" ;;
-    status)   cmd_status ;;
+    setup)         shift; cmd_setup "$@" ;;
+    fetch)         cmd_fetch ;;
+    today)         cmd_today ;;
+    schedule)      shift; cmd_schedule "$@" ;;
+    notify)        shift; cmd_notify "$@" ;;
+    status)        cmd_status ;;
+    auto_schedule) shift; cmd_auto_schedule "$@" ;;
     help|*)
-        echo "Usage: prayer_notify.sh {setup|fetch|today|schedule|notify|status}"
+        echo "Usage: prayer_notify.sh {setup|fetch|today|schedule|notify|status|auto_schedule}"
         echo ""
         echo "Commands:"
         echo "  setup <city>           Set kota dan fetch data awal"
@@ -305,6 +490,8 @@ case "${1:-help}" in
         echo "  schedule [prayers...]  Hitung detik-dari-sekarang untuk reminder"
         echo "  notify <prayer> <time> Kirim notifikasi (ntfy + stdout)"
         echo "  status                 Tampilkan config dan status data"
+        echo "  auto_schedule <store> <channel> <chat_id>"
+        echo "                         Tulis cron job langsung (tanpa AI)"
         echo ""
         echo "Config: $CONFIG_FILE"
         echo "Kota saat ini: $CITY"

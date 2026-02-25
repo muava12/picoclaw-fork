@@ -62,10 +62,13 @@ func cronHelp() {
 	fmt.Println("  -n, --name       Job name")
 	fmt.Println("  -m, --message    Message for agent")
 	fmt.Println("  -e, --every      Run every N seconds")
+	fmt.Println("  -a, --at         Run once in N seconds from now")
 	fmt.Println("  -c, --cron       Cron expression (e.g. '0 9 * * *')")
-	fmt.Println("  -d, --deliver     Deliver response to channel")
+	fmt.Println("  --command        Shell command to execute")
+	fmt.Println("  -d, --deliver    Deliver response to channel")
 	fmt.Println("  --to             Recipient for delivery")
 	fmt.Println("  --channel        Channel for delivery")
+	fmt.Println("  --delete-after   Delete job after first run (default for --at)")
 }
 
 func cronListCmd(storePath string) {
@@ -111,8 +114,11 @@ func cronAddCmd(storePath string) {
 	name := ""
 	message := ""
 	var everySec *int64
+	var atSec *int64
 	cronExpr := ""
+	command := ""
 	deliver := false
+	deleteAfter := false
 	channel := ""
 	to := ""
 
@@ -136,13 +142,27 @@ func cronAddCmd(storePath string) {
 				everySec = &sec
 				i++
 			}
+		case "-a", "--at":
+			if i+1 < len(args) {
+				var sec int64
+				fmt.Sscanf(args[i+1], "%d", &sec)
+				atSec = &sec
+				i++
+			}
 		case "-c", "--cron":
 			if i+1 < len(args) {
 				cronExpr = args[i+1]
 				i++
 			}
+		case "--command":
+			if i+1 < len(args) {
+				command = args[i+1]
+				i++
+			}
 		case "-d", "--deliver":
 			deliver = true
+		case "--delete-after":
+			deleteAfter = true
 		case "--to":
 			if i+1 < len(args) {
 				to = args[i+1]
@@ -166,13 +186,20 @@ func cronAddCmd(storePath string) {
 		return
 	}
 
-	if everySec == nil && cronExpr == "" {
-		fmt.Println("Error: Either --every or --cron must be specified")
+	if atSec == nil && everySec == nil && cronExpr == "" {
+		fmt.Println("Error: One of --at, --every, or --cron must be specified")
 		return
 	}
 
 	var schedule cron.CronSchedule
-	if everySec != nil {
+	if atSec != nil {
+		atMS := time.Now().UnixMilli() + *atSec*1000
+		schedule = cron.CronSchedule{
+			Kind: "at",
+			AtMS: &atMS,
+		}
+		deleteAfter = true // at jobs always delete after run
+	} else if everySec != nil {
 		everyMS := *everySec * 1000
 		schedule = cron.CronSchedule{
 			Kind:    "every",
@@ -185,11 +212,27 @@ func cronAddCmd(storePath string) {
 		}
 	}
 
+	// If command is set, deliver should be false
+	if command != "" {
+		deliver = false
+	}
+
 	cs := cron.NewCronService(storePath, nil)
 	job, err := cs.AddJob(name, schedule, message, deliver, channel, to)
 	if err != nil {
 		fmt.Printf("Error adding job: %v\n", err)
 		return
+	}
+
+	// Set command and deleteAfterRun if needed
+	if command != "" {
+		job.Payload.Command = command
+	}
+	if deleteAfter {
+		job.DeleteAfterRun = true
+	}
+	if command != "" || deleteAfter {
+		cs.UpdateJob(job)
 	}
 
 	fmt.Printf("✓ Added job '%s' (%s)\n", job.Name, job.ID)

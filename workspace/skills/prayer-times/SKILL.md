@@ -24,10 +24,10 @@ chmod +x skills/prayer-times/scripts/prayer_notify.sh
 | `today` | Tampilkan jadwal hari ini |
 | `schedule [prayers...]` | Output `nama\|HH:MM\|detik` untuk sholat yang belum lewat |
 | `notify <prayer> <time>` | Kirim ke ntfy + cetak pesan untuk Telegram |
+| `auto_schedule <channel> <chat_id>` | **Tulis cron job via picoclaw CLI (tanpa AI)** |
 | `status` | Tampilkan config dan status data |
 
-**Auto-fetch**: `schedule` dan `today` otomatis fetch jika data bulan ini belum ada.
-Jadi meski device mati saat awal bulan, data tetap ter-update saat dipakai.
+**Auto-fetch**: `schedule`, `today`, dan `auto_schedule` otomatis fetch jika data bulan ini belum ada.
 
 ## Trigger Phrases
 
@@ -47,7 +47,7 @@ Saat user **pertama kali** minta reminder sholat:
 
 ### 2. Setup kota (via exec tool, BUKAN cron)
 ```bash
-bash skills/prayer-times/scripts/prayer_notify.sh setup samarinda
+bash skills/prayer-times/scripts/prayer_notify.sh setup dumai
 ```
 Ini akan save config ke `skills/prayer-times/data/config` dan fetch data bulan ini.
 
@@ -63,21 +63,27 @@ Simpan juga ke MEMORY.md agar tidak lupa.
 {"action": "add", "message": "Monthly prayer fetch", "command": "bash skills/prayer-times/scripts/prayer_notify.sh fetch", "cron_expr": "0 1 1 * *"}
 ```
 
-### 5. Setup daily scheduler (jam 01:30 setiap hari)
+### 5. Setup daily auto-scheduler (jam 01:30 setiap hari)
+
+**PENTING**: Gunakan `command` mode agar script langsung menulis cron job. AI **tidak** perlu terlibat.
+
 ```json
 {
   "action": "add",
-  "message": "Baca jadwal sholat hari ini. Jalankan: bash skills/prayer-times/scripts/prayer_notify.sh schedule. Untuk setiap baris output (format: nama|waktu|detik), buat 2 cron job one-time: (1) deliver:true untuk Telegram dengan pesan emoji, (2) command dengan: bash skills/prayer-times/scripts/prayer_notify.sh notify <nama> <waktu> untuk ntfy.",
-  "cron_expr": "30 1 * * *",
-  "deliver": false
+  "message": "Daily prayer auto-schedule",
+  "command": "bash skills/prayer-times/scripts/prayer_notify.sh auto_schedule telegram CHAT_ID",
+  "cron_expr": "30 1 * * *"
 }
 ```
+
+Ganti `CHAT_ID` dengan chat ID user yang meminta (tersedia di session context).
+Script akan menambah reminder sholat ke cron via `picoclaw cron add`, tanpa perlu AI.
 
 ## Config File
 
 Disimpan di `skills/prayer-times/data/config` — **milik skill ini sendiri, tidak shared**:
 ```
-CITY="samarinda"
+CITY="dumai"
 SAHUR_MINS="30"
 IFTAR_MINS="10"
 PRAYERS="shubuh dzuhur ashr magrib isya"
@@ -89,38 +95,17 @@ User bisa minta ubah via exec tool:
 - Ganti kota: `prayer_notify.sh setup <kota_baru>`
 - Ganti ntfy: edit NTFY_TOPIC di config
 
-## Cara Agent Memproses Daily Scheduler
+## Timezone
 
-Saat daily scheduler trigger (jam 01:30), agent HARUS:
+Script otomatis mapping kota Indonesia ke timezone yang benar:
 
-### Step 1: Jalankan script via exec tool
-```bash
-bash skills/prayer-times/scripts/prayer_notify.sh schedule
-```
+| Zona | Contoh Kota | TZ |
+|------|-------------|-----|
+| WIB (UTC+7) | dumai, pekanbaru, jakarta, surabaya | Asia/Jakarta |
+| WITA (UTC+8) | samarinda, makassar, denpasar | Asia/Makassar |
+| WIT (UTC+9) | jayapura, ambon, manokwari | Asia/Jayapura |
 
-Output contoh:
-```
-shubuh|05:06|12360
-dzuhur|12:27|52020
-ashr|15:42|63720
-magrib|18:30|73800
-isya|19:39|77940
-```
-
-### Step 2: Untuk SETIAP baris, buat 2 cron job
-
-**Telegram** (deliver=true):
-```json
-{"action": "add", "message": "🌅 Waktu Shubuh (05:06) — Saatnya menunaikan sholat shubuh.", "at_seconds": 12360}
-```
-
-**ntfy** (command):
-```json
-{"action": "add", "message": "ntfy: shubuh", "command": "bash skills/prayer-times/scripts/prayer_notify.sh notify shubuh 05:06", "at_seconds": 12360}
-```
-
-### Step 3: Konfirmasi (satu pesan ringkasan)
-Kirim ringkasan ke user: "✅ Reminder sholat hari ini sudah diset: Shubuh 05:06, Dzuhur 12:27, ..."
+Ini penting agar epoch calculation sesuai waktu lokal kota, bukan system timezone.
 
 ## Waktu yang Tersedia
 
@@ -138,8 +123,6 @@ Kirim ringkasan ke user: "✅ Reminder sholat hari ini sudah diset: Shubuh 05:06
 
 1. **Tanya kota** saat pertama kali — jangan asumsi. Jalankan `setup <kota>` sebelum apapun.
 2. **JANGAN hardcode waktu sholat** — selalu baca dari script output. Waktu berubah setiap hari.
-3. **JANGAN buat cron_expr untuk waktu sholat** — karena waktu berubah harian, gunakan daily scheduler + at_seconds.
-4. **Parse output dengan benar** — format: `nama|HH:MM|detik`. Kolom ke-3 = `at_seconds`.
-5. **Dual delivery** — setiap reminder: Telegram (deliver:true) + ntfy (via notify command).
-6. **at_seconds auto-delete** — one-time job otomatis hilang setelah trigger.
-7. **Auto-fetch** — script otomatis download data jika file bulan ini belum ada. Aman jika device mati saat awal bulan.
+3. **Gunakan auto_schedule** untuk daily scheduler — ini menulis cron job langsung tanpa AI.
+4. **at_seconds auto-delete** — one-time job otomatis hilang setelah trigger.
+5. **Auto-fetch** — script otomatis download data jika file bulan ini belum ada.
