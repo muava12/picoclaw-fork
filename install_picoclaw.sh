@@ -138,6 +138,23 @@ print_step "Extracting..."
 tar -xzf picoclaw.tar.gz "$BINARY_NAME"
 chmod +x "$BINARY_NAME"
 
+print_step "Stopping running PicoClaw instances..."
+# Stop systemd service if active
+if systemctl is-active --quiet picoclaw 2>/dev/null; then
+    sudo systemctl stop picoclaw 2>/dev/null && print_success "Stopped systemd service" || print_warn "Failed to stop systemd service"
+elif systemctl is-active --quiet picoclaw-manager 2>/dev/null; then
+    # Stop via manager API first (graceful)
+    MANAGER_PORT=$(ss -tlnp 2>/dev/null | grep picoclaw_manager | grep -oP ':\K[0-9]+' | head -1)
+    if [ -n "$MANAGER_PORT" ]; then
+        curl -s -X POST "http://localhost:${MANAGER_PORT}/api/picoclaw/stop" >/dev/null 2>&1 && print_success "Stopped via manager API" || true
+    fi
+fi
+# Kill any remaining picoclaw gateway processes
+if pgrep -f "picoclaw gateway" >/dev/null 2>&1; then
+    pkill -f "picoclaw gateway" 2>/dev/null && print_success "Stopped picoclaw gateway process" || true
+    sleep 1
+fi
+
 print_step "Installing..."
 mv -f "$BINARY_NAME" "$INSTALL_DIR/"
 rm -f picoclaw.tar.gz

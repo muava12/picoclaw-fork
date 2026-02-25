@@ -5,11 +5,13 @@ PicoClaw Manager Server
 Lightweight HTTP API to manage PicoClaw process lifecycle.
 
 Endpoints:
-  POST /api/picoclaw/restart     → Kill & restart PicoClaw gateway
-  POST /api/picoclaw/start       → Start PicoClaw gateway
-  POST /api/picoclaw/stop        → Stop PicoClaw gateway
-  GET  /api/picoclaw/status      → Check if PicoClaw gateway is running
-  GET  /api/health               → Health check
+  POST /api/picoclaw/restart      → Kill & restart PicoClaw gateway
+  POST /api/picoclaw/start        → Start PicoClaw gateway
+  POST /api/picoclaw/stop         → Stop PicoClaw gateway
+  POST /api/picoclaw/update       → Download & install latest version
+  GET  /api/picoclaw/status       → Check if PicoClaw gateway is running
+  GET  /api/picoclaw/check-update → Check for newer version on GitHub
+  GET  /api/health                → Health check
 
 Usage:
   python3 picoclaw_manager.py                          # default port 8321
@@ -22,10 +24,13 @@ import argparse
 import json
 import logging
 import os
+import platform
+import re
 import signal
 import subprocess
 import sys
 import time
+import urllib.request
 from http.server import HTTPServer, BaseHTTPRequestHandler
 from threading import Thread, Lock
 from datetime import datetime
@@ -34,6 +39,7 @@ from datetime import datetime
 DEFAULT_PORT = 8321
 DEFAULT_PICOCLAW_BIN = os.path.expanduser("~/.local/bin/picoclaw")
 DEFAULT_CONFIG_PATH = os.path.expanduser("~/.picoclaw/config.json")
+DEFAULT_REPO = "muava12/picoclaw-fork"
 
 # ── Logging ───────────────────────────────────────
 logging.basicConfig(
@@ -47,9 +53,10 @@ log = logging.getLogger("picoclaw-manager")
 class PicoClawManager:
     """Manages the PicoClaw gateway process lifecycle."""
 
-    def __init__(self, picoclaw_bin: str, config_path: str):
+    def __init__(self, picoclaw_bin: str, config_path: str, repo: str = DEFAULT_REPO):
         self.picoclaw_bin = picoclaw_bin
         self.config_path = config_path
+        self.repo = repo
         self._process = None
         self._lock = Lock()
         self._started_at = None
@@ -214,6 +221,118 @@ class PicoClawManager:
                     key, _, value = line.partition("=")
                     env[key.strip()] = value.strip()
 
+    def _get_installed_version(self) -> str:
+        """Get currently installed picoclaw version."""
+        try:
+            result = subprocess.run(
+                [self.picoclaw_bin, "--version"],
+                capture_output=True, text=True, timeout=5
+            )
+            match = re.search(r'v?[0-9]+\.[0-9]+\.[0-9]+[^ )*]*', result.stdout)
+            return match.group(0).lstrip('v') if match else "unknown"
+        except Exception:
+            return "unknown"
+
+    def _get_latest_release(self) -> dict:
+        """Query GitHub API for latest release."""
+        url = f"https://api.github.com/repos/{self.repo}/releases/latest"
+        req = urllib.request.Request(url, headers={"User-Agent": "picoclaw-manager"})
+        resp = urllib.request.urlopen(req, timeout=10)
+        return json.loads(resp.read().decode())
+
+    def _detect_arch(self) -> str:
+        """Detect system architecture for download."""
+        machine = platform.machine().lower()
+        if machine in ("x86_64", "amd64"):
+            return "x86_64"
+        elif machine in ("aarch64", "arm64"):
+            return "arm64"
+        return machine
+
+    def check_update(self) -> dict:
+        """Check if a newer version is available."""
+        try:
+            installed = self._get_installed_version()
+            release = self._get_latest_release()
+            latest = release.get("tag_name", "").lstrip("v")
+            update_available = installed != latest and latest != ""
+            return {
+                "installed_version": installed,
+                "latest_version": latest,
+                "update_available": update_available,
+                "release_url": release.get("html_url", ""),
+            }
+        except Exception as e:
+            return {
+                "installed_version": self._get_installed_version(),
+                "latest_version": None,
+                "update_available": False,
+                "error": str(e),
+            }
+
+    def update(self) -> dict:
+        """Download and install latest version. Stops gateway first."""
+        try:
+            check = self.check_update()
+            if not check.get("update_available"):
+                return {
+                    "success": True,
+                    "message": f"Sudah versi terbaru ({check.get('installed_version')})",
+                    "updated": False,
+                }
+
+            latest = check["latest_version"]
+            arch = self._detect_arch()
+            download_url = (
+                f"https://github.com/{self.repo}/releases/latest/download/"
+                f"picoclaw_Linux_{arch}.tar.gz"
+            )
+
+            log.info("Downloading picoclaw %s (%s)...", latest, arch)
+
+            # Download to temp
+            tmp_tar = "/tmp/picoclaw_update.tar.gz"
+            urllib.request.urlretrieve(download_url, tmp_tar)
+
+            # Extract binary
+            subprocess.run(
+                ["tar", "-xzf", tmp_tar, "picoclaw", "-C", "/tmp"],
+                check=True, capture_output=True
+            )
+            os.chmod("/tmp/picoclaw", 0o755)
+
+            # Stop gateway if running
+            was_running = self.is_running
+            if was_running:
+                log.info("Stopping gateway before update...")
+                self.stop()
+                time.sleep(1)
+
+            # Replace binary
+            import shutil
+            shutil.move("/tmp/picoclaw", self.picoclaw_bin)
+            os.remove(tmp_tar)
+
+            new_version = self._get_installed_version()
+            log.info("✓ Updated picoclaw: %s → %s", check["installed_version"], new_version)
+
+            return {
+                "success": True,
+                "message": f"Berhasil update: {check['installed_version']} → {new_version}",
+                "updated": True,
+                "previous_version": check["installed_version"],
+                "new_version": new_version,
+                "was_running": was_running,
+            }
+
+        except Exception as e:
+            log.error("✗ Update gagal: %s", e)
+            return {
+                "success": False,
+                "message": f"Update gagal: {str(e)}",
+                "updated": False,
+            }
+
 
 # ── HTTP Handler ──────────────────────────────────
 
@@ -234,6 +353,10 @@ class PicoClawHandler(BaseHTTPRequestHandler):
             if not self._check_auth():
                 return
             self._json_response(200, self.manager.status())
+        elif self.path == "/api/picoclaw/check-update":
+            if not self._check_auth():
+                return
+            self._json_response(200, self.manager.check_update())
         else:
             self._json_response(404, {"error": "Not found"})
 
@@ -245,6 +368,7 @@ class PicoClawHandler(BaseHTTPRequestHandler):
             "/api/picoclaw/start": self.manager.start,
             "/api/picoclaw/stop": self.manager.stop,
             "/api/picoclaw/restart": self.manager.restart,
+            "/api/picoclaw/update": self.manager.update,
         }
 
         handler = routes.get(self.path)
@@ -358,11 +482,13 @@ Dengan auth token:
     print(f"  Auth        → {'✓ enabled' if args.token else '✗ disabled'}")
     print()
     print("  Endpoints:")
-    print("    GET  /api/health            → Health check")
-    print("    GET  /api/picoclaw/status   → Status PicoClaw")
-    print("    POST /api/picoclaw/start    → Start gateway")
-    print("    POST /api/picoclaw/stop     → Stop gateway")
-    print("    POST /api/picoclaw/restart  → Restart gateway")
+    print("    GET  /api/health               → Health check")
+    print("    GET  /api/picoclaw/status       → Status PicoClaw")
+    print("    GET  /api/picoclaw/check-update → Cek versi terbaru")
+    print("    POST /api/picoclaw/start        → Start gateway")
+    print("    POST /api/picoclaw/stop         → Stop gateway")
+    print("    POST /api/picoclaw/restart      → Restart gateway")
+    print("    POST /api/picoclaw/update       → Update binary")
     print()
 
     if args.auto_start:

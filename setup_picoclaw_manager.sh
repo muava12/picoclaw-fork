@@ -86,8 +86,8 @@ UNIT
   sudo systemctl enable "$SERVICE_NAME"
   success "Service enabled (auto-start on boot)"
 
-  # Start
-  sudo systemctl start "$SERVICE_NAME"
+  # Start (or restart if already running)
+  sudo systemctl restart "$SERVICE_NAME"
   success "Service started"
 
   echo ""
