@@ -277,7 +277,7 @@ class PicoClawManager:
             if not check.get("update_available"):
                 return {
                     "success": True,
-                    "message": f"Sudah versi terbaru ({check.get('installed_version')})",
+                    "message": f"Already on latest version {check.get('installed_version')}. No action needed.",
                     "updated": False,
                 }
 
@@ -316,21 +316,34 @@ class PicoClawManager:
             new_version = self._get_installed_version()
             log.info("✓ Updated picoclaw: %s → %s", check["installed_version"], new_version)
 
+            # Auto-restart gateway if it was running before
+            restarted = False
+            if was_running:
+                log.info("Restarting gateway with new binary...")
+                start_result = self.start()
+                restarted = start_result.get("success", False)
+
             return {
                 "success": True,
-                "message": f"Berhasil update: {check['installed_version']} → {new_version}",
+                "message": f"Update complete: {check['installed_version']} → {new_version}." + (
+                    " Gateway restarted successfully." if restarted else
+                    " Gateway was not running, start manually via POST /api/picoclaw/start." if not was_running else
+                    " Gateway restart failed, start manually via POST /api/picoclaw/start."
+                ),
                 "updated": True,
                 "previous_version": check["installed_version"],
                 "new_version": new_version,
                 "was_running": was_running,
+                "restarted": restarted,
             }
 
         except Exception as e:
-            log.error("✗ Update gagal: %s", e)
+            log.error("✗ Update failed: %s", e)
             return {
                 "success": False,
-                "message": f"Update gagal: {str(e)}",
+                "message": f"Update failed: {str(e)}. Gateway may still be stopped. Check status via GET /api/picoclaw/status.",
                 "updated": False,
+                "next_action": "GET /api/picoclaw/status",
             }
 
 
