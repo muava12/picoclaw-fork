@@ -3,11 +3,11 @@ set -e
 
 INSTALL_DIR="$HOME/.local/bin"
 BINARY_NAME="picoclaw"
-URL="https://github.com/sipeed/picoclaw/releases/latest/download/picoclaw_Linux_arm64.tar.gz"
 
 GREEN='\033[0;32m'
 BLUE='\033[0;34m'
 RED='\033[0;31m'
+YELLOW='\033[0;33m'
 BOLD='\033[1m'
 RESET='\033[0m'
 
@@ -23,10 +23,29 @@ print_error() {
     echo -e "${RED}✗${RESET} $1"
 }
 
+print_warn() {
+    echo -e "${YELLOW}!${RESET} $1"
+}
+
 get_latest_version() {
     local repo="$1"
     curl -sI "https://github.com/${repo}/releases/latest" 2>/dev/null | \
         grep -i "location:" | sed 's|.*/tag/||' | tr -d '\r\n'
+}
+
+# Detect system architecture
+detect_arch() {
+    local arch
+    arch=$(uname -m)
+    case "$arch" in
+        x86_64|amd64)  echo "x86_64" ;;
+        aarch64|arm64) echo "arm64" ;;
+        armv7*|armhf)  echo "armv7" ;;
+        *)
+            print_error "Unsupported architecture: $arch"
+            exit 1
+            ;;
+    esac
 }
 
 echo ""
@@ -34,7 +53,12 @@ echo -e "${BOLD}  PicoClaw Installer${RESET}"
 echo "  ─────────────────────"
 echo ""
 
+# Detect architecture
+ARCH=$(detect_arch)
+print_success "Detected architecture: $ARCH"
+
 # Ask user which version to install
+echo ""
 echo -e "${BOLD}Select version to install:${RESET}"
 echo "  1) Original (sipeed/picoclaw)"
 echo "  2) Fork (muava12/picoclaw-fork)"
@@ -42,16 +66,16 @@ echo ""
 read -p "Choose [1-2] (default: 2): " version_choice < /dev/tty
 
 if [[ "$version_choice" == "1" ]]; then
-    URL="https://github.com/sipeed/picoclaw/releases/latest/download/picoclaw_Linux_arm64.tar.gz"
     REPO="sipeed/picoclaw"
     echo ""
     print_step "Selected: ${BOLD}Original version${RESET}"
 else
-    URL="https://github.com/muava12/picoclaw-fork/releases/latest/download/picoclaw_Linux_arm64.tar.gz"
     REPO="muava12/picoclaw-fork"
     echo ""
     print_step "Selected: ${BOLD}Fork version${RESET}"
 fi
+
+URL="https://github.com/${REPO}/releases/latest/download/picoclaw_Linux_${ARCH}.tar.gz"
 
 print_step "Checking for latest version..."
 VERSION=$(get_latest_version "$REPO")
@@ -102,7 +126,7 @@ fi
 mkdir -p "$INSTALL_DIR"
 print_success "Install directory: $INSTALL_DIR"
 
-print_step "Downloading $BINARY_NAME (arm64)..."
+print_step "Downloading $BINARY_NAME ($ARCH)..."
 cd /tmp
 if command -v pv &> /dev/null; then
     curl -L "$URL" | pv -b -p -e -r > picoclaw.tar.gz
@@ -122,12 +146,14 @@ print_success "Installed to $INSTALL_DIR/$BINARY_NAME"
 print_success "Version: $VERSION"
 
 echo ""
+PATH_CHANGED=false
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     print_step "Fixing PATH..."
     if ! grep -q "$INSTALL_DIR" ~/.bashrc 2>/dev/null; then
         echo '' >> ~/.bashrc
         echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
         print_success "Added to ~/.bashrc"
+        PATH_CHANGED=true
     else
         print_success "Already configured in ~/.bashrc"
     fi
@@ -136,6 +162,7 @@ if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
         echo '' >> ~/.zshrc
         echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
         print_success "Added to ~/.zshrc"
+        PATH_CHANGED=true
     fi
     export PATH="$INSTALL_DIR:$PATH"
     print_success "PATH updated for current session"
@@ -143,17 +170,12 @@ else
     print_success "Already in PATH"
 fi
 
-# Reload shell config so picoclaw is immediately available
-print_step "Reloading shell config..."
-if [ -n "$BASH_VERSION" ] && [ -f "$HOME/.bashrc" ]; then
-    source "$HOME/.bashrc"
-elif [ -n "$ZSH_VERSION" ] && [ -f "$HOME/.zshrc" ]; then
-    source "$HOME/.zshrc"
-elif [ -f "$HOME/.bashrc" ]; then
-    source "$HOME/.bashrc"
-fi
-print_success "Done"
-
 echo ""
-echo -e "Run: ${BOLD}picoclaw onboard${RESET} to get started"
+if [ "$PATH_CHANGED" = true ]; then
+    print_warn "Run this first to activate PATH:"
+    echo ""
+    echo -e "  ${BOLD}source ~/.bashrc${RESET}"
+    echo ""
+fi
+echo -e "Then run: ${BOLD}picoclaw onboard${RESET} to get started"
 echo ""

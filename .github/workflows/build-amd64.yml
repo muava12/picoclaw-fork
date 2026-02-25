@@ -1,4 +1,4 @@
-name: Build Linux ARM64 (GoReleaser)
+name: Build Linux AMD64 (GoReleaser)
 
 on:
   workflow_dispatch:
@@ -8,8 +8,8 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build-arm64:
-    name: Build Linux ARM64
+  build-amd64:
+    name: Build Linux AMD64
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -17,7 +17,7 @@ jobs:
       - name: 📢 Notify Start
         run: |
           curl \
-            -H "Title: Deploy picoclaw Linux ARM64 Started 🚀" \
+            -H "Title: Deploy picoclaw Linux AMD64 Started 🚀" \
             -H "Tags: rocket,construction_worker" \
             -H "Priority: default" \
             -d "Branch: ${{ github.ref_name }} | Commit: ${{ github.sha }}" \
@@ -53,11 +53,11 @@ jobs:
           echo "Versi fork yang digunakan: $FORK_VERSION"
           echo "FORK_VERSION=$FORK_VERSION" >> $GITHUB_ENV
 
-      - name: Restrict GoReleaser to linux/arm64
+      - name: Restrict GoReleaser to linux/amd64
         run: |
           yq -i '.project_name = "picoclaw"' .goreleaser.yaml
           yq -i '.builds[0].goos = ["linux"]' .goreleaser.yaml
-          yq -i '.builds[0].goarch = ["arm64"]' .goreleaser.yaml
+          yq -i '.builds[0].goarch = ["amd64"]' .goreleaser.yaml
           yq -i 'del(.builds[0].ignore)' .goreleaser.yaml
           yq -i 'del(.dockers_v2)' .goreleaser.yaml
           yq -i '.snapshot.version_template = "{{ .Env.GORELEASER_CURRENT_TAG }}"' .goreleaser.yaml
@@ -76,7 +76,7 @@ jobs:
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: picoclaw-linux-arm64-${{ env.FORK_VERSION }}
+          name: picoclaw-linux-amd64-${{ env.FORK_VERSION }}
           path: dist/*.tar.gz
           if-no-files-found: warn
 
@@ -94,17 +94,17 @@ jobs:
         if: success()
         run: |
           curl \
-            -H "Title: Deploy picoclaw Linux ARM64 Success ✅" \
+            -H "Title: Deploy picoclaw Linux AMD64 Success ✅" \
             -H "Tags: white_check_mark,partying_face" \
             -H "Priority: high" \
-            -d "Build artifact picoclaw-linux-arm64-${{ env.FORK_VERSION }} has been successfully uploaded." \
+            -d "Build artifact picoclaw-linux-amd64-${{ env.FORK_VERSION }} has been successfully uploaded." \
             https://ntfy.sh/deploy-on-github-xasr6KBz47PjswPf53A78Fib
 
       - name: 📢 Notify Failure
         if: failure()
         run: |
           curl \
-            -H "Title: Deploy picoclaw Linux ARM64 Failed ❌" \
+            -H "Title: Deploy picoclaw Linux AMD64 Failed ❌" \
             -H "Tags: x,skull" \
             -H "Priority: urgent" \
             -d "Build failed on branch ${{ github.ref_name }}. Please check the GitHub Actions logs." \
