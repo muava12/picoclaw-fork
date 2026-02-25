@@ -37,6 +37,13 @@
 > ```bash
 > picoclaw onboard
 > ```
+>
+> #### 🔧 Install Manager (opsional)
+>
+> Service manager untuk start/stop/restart dan auto-update PicoClaw via HTTP API:
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/muava12/picoclaw-fork/main/setup_picoclaw_manager.sh | bash -s install
+> ```
 
 🦐 PicoClaw is an ultra-lightweight personal AI Assistant inspired by [nanobot](https://github.com/HKUDS/nanobot), refactored from the ground up in Go through a self-bootstrapping process, where the AI agent itself drove the entire architectural migration and code optimization.
 

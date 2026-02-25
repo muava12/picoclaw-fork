@@ -30,26 +30,19 @@ warn()    { echo -e "  ${Y}!${X} $1"; }
 err()     { echo -e "  ${R}✗${X} $1"; }
 
 # ── Install ───────────────────────────────────────
+REPO_RAW="https://raw.githubusercontent.com/muava12/picoclaw-fork/main"
+
 cmd_install() {
   banner
   info "Installing ${SERVICE_NAME}..."
   echo ""
 
-  # Cari picoclaw_api.py di folder yang sama dengan script ini
-  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-  SOURCE="${SCRIPT_DIR}/${SCRIPT_NAME}"
-
-  if [ ! -f "$SOURCE" ]; then
-    err "${SCRIPT_NAME} tidak ditemukan di ${SCRIPT_DIR}"
-    exit 1
-  fi
-
-  # Copy script
-  info "Copying ${SCRIPT_NAME} → ${INSTALL_DIR}/"
+  # Download picoclaw_manager.py dari GitHub
+  info "Downloading ${SCRIPT_NAME} dari GitHub..."
   sudo mkdir -p "$INSTALL_DIR"
-  sudo cp "$SOURCE" "${INSTALL_DIR}/${SCRIPT_NAME}"
+  sudo curl -fsSL "${REPO_RAW}/${SCRIPT_NAME}" -o "${INSTALL_DIR}/${SCRIPT_NAME}"
   sudo chmod +x "${INSTALL_DIR}/${SCRIPT_NAME}"
-  success "Script copied"
+  success "Script downloaded"
 
   # Copy .env jika ada
   if [ -f "${SCRIPT_DIR}/.env" ]; then
@@ -132,15 +125,7 @@ cmd_update() {
   banner
   info "Updating ${SCRIPT_NAME}..."
 
-  SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-  SOURCE="${SCRIPT_DIR}/${SCRIPT_NAME}"
-
-  if [ ! -f "$SOURCE" ]; then
-    err "${SCRIPT_NAME} tidak ditemukan di ${SCRIPT_DIR}"
-    exit 1
-  fi
-
-  sudo cp "$SOURCE" "${INSTALL_DIR}/${SCRIPT_NAME}"
+  sudo curl -fsSL "${REPO_RAW}/${SCRIPT_NAME}" -o "${INSTALL_DIR}/${SCRIPT_NAME}"
   sudo chmod +x "${INSTALL_DIR}/${SCRIPT_NAME}"
   success "Script updated"
 
