@@ -32,18 +32,22 @@ systemd → picoclaw_manager.py (port 8321) → picoclaw gateway
 
 ## Init — Download Semua File dari GitHub
 
-Saat pertama kali setup, download semua file yang dibutuhkan:
+Saat pertama kali setup, download semua file yang dibutuhkan ke direktori skill lokal:
 
 ```bash
-REPO_RAW="https://raw.githubusercontent.com/muava12/picoclaw-fork/main"
-SKILL_RAW="${REPO_RAW}/workspace/skills/picoclaw-life/scripts"
+# Direktori lokal skill
+SKILL_DIR="/DATA/.picoclaw/workspace/skills/picoclaw-life"
+SCRIPTS_DIR="${SKILL_DIR}/scripts"
 
-# 1. Install manager service (otomatis download picoclaw_manager.py)
-curl -fsSL ${REPO_RAW}/setup_picoclaw_manager.sh | bash -s install
+# 1. Pastikan direktori scripts ada
+mkdir -p "${SCRIPTS_DIR}"
 
-# 2. Download update script ke /opt/picoclaw/
-sudo curl -fsSL ${SKILL_RAW}/update_picoclaw.sh -o /opt/picoclaw/update_picoclaw.sh
-sudo chmod +x /opt/picoclaw/update_picoclaw.sh
+# 2. Unduh setup script dan install manager service
+curl -fsSL https://raw.githubusercontent.com/muava12/picoclaw-fork/main/setup_picoclaw_manager.sh | bash -s install -- --install-dir "${SCRIPTS_DIR}"
+
+# 3. Unduh dan instal update script ke direktori scripts lokal
+curl -fsSL https://raw.githubusercontent.com/muava12/picoclaw-fork/main/workspace/skills/picoclaw-life/scripts/update_picoclaw.sh -o "${SCRIPTS_DIR}/update_picoclaw.sh"
+chmod +x "${SCRIPTS_DIR}/update_picoclaw.sh"
 ```
 
 ### File yang dibutuhkan
@@ -51,8 +55,8 @@ sudo chmod +x /opt/picoclaw/update_picoclaw.sh
 | File | Lokasi | Fungsi |
 |------|---------|--------|
 | `picoclaw` (binary) | `~/.local/bin/picoclaw` | Gateway utama |
-| `picoclaw_manager.py` | `/opt/picoclaw/` | API server manager |
-| `update_picoclaw.sh` | `/opt/picoclaw/` | Script update binary (dipanggil oleh manager) |
+| `picoclaw_manager.py` | `/DATA/.picoclaw/workspace/skills/picoclaw-life/scripts/` | API server manager |
+| `update_picoclaw.sh` | `/DATA/.picoclaw/workspace/skills/picoclaw-life/scripts/` | Script update binary (dipanggil oleh manager) |
 | `setup_picoclaw_manager.sh` | Via curl (tidak perlu simpan) | Installer service |
 
 ## API Endpoints
@@ -80,6 +84,8 @@ curl -s -X POST http://localhost:8321/api/picoclaw/update
 ```
 
 Flow: manager stop gateway → jalankan `update_picoclaw.sh` → restart gateway otomatis.
+
+> 📝 **Auto-update versi di IDENTITY.md**: Setelah update berhasil, versi di file `IDENTITY.md` di direktori workspace `/DATA/.picoclaw/workspace/` akan otomatis diperbarui ke versi terbaru.
 
 > ⚠️ **JANGAN gunakan `install_picoclaw.sh` untuk update** — script itu akan mematikan manager dan membutuhkan manual restart. Selalu gunakan API di atas.
 
@@ -132,13 +138,13 @@ journalctl -u picoclaw-manager -f
 3. **Install cukup sekali** — setup script download semua dari GitHub.
 4. **Re-install aman** — menjalankan `install` ulang akan restart service dengan script terbaru.
 5. **Update binary via API** — gunakan `/api/picoclaw/update` untuk update tanpa SSH manual.
-6. **update_picoclaw.sh harus ada** — pastikan file ini ada di `/opt/picoclaw/` untuk update via manager.
+6. **update_picoclaw.sh harus ada** — pastikan file ini ada di `/DATA/.picoclaw/workspace/skills/picoclaw-life/scripts/` untuk update via manager.
 
 ## Config
 
 - **Binary PicoClaw**: `~/.local/bin/picoclaw`
 - **Config**: `~/.picoclaw/config.json`
 - **Port Manager API**: `8321`
-- **Install dir**: `/opt/picoclaw/`
+- **Install dir**: `/DATA/.picoclaw/workspace/skills/picoclaw-life/scripts/`
 - **Service**: `picoclaw-manager.service`
 - **Repo**: `muava12/picoclaw-fork`

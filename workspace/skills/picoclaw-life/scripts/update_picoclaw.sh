@@ -82,5 +82,16 @@ rm -f /tmp/picoclaw_update.tar.gz
 NEW_VERSION=$(get_installed_version)
 info "Update complete: $INSTALLED → $NEW_VERSION"
 
+# Update version in IDENTITY.md
+IDENTITY_FILE="$HOME/.picoclaw/workspace/IDENTITY.md"
+if [ -f "$IDENTITY_FILE" ]; then
+    info "Updating version in $IDENTITY_FILE..."
+    # Replace the line after ## Version with new version
+    sed -i "0,/^## Version$/{n;s/.*/${NEW_VERSION}/}" "$IDENTITY_FILE"
+    info "Version updated to ${NEW_VERSION}"
+else
+    error "IDENTITY.md not found at $IDENTITY_FILE"
+fi
+
 # Output JSON for manager to parse
 echo "{\"success\":true,\"message\":\"Update complete: ${INSTALLED} → ${NEW_VERSION}.\",\"updated\":true,\"previous_version\":\"${INSTALLED}\",\"new_version\":\"${NEW_VERSION}\"}"
