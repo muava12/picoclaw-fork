@@ -21,12 +21,39 @@ Manage PicoClaw gateway lifecycle: install sebagai systemd service, start/stop/r
 
 ```
 systemd → picoclaw_manager.py (port 8321) → picoclaw gateway
+                  ↓ (saat update)
+           update_picoclaw.sh → download binary dari GitHub releases
 ```
 
 - `picoclaw_manager.py` jalan sebagai systemd service (`picoclaw-manager`)
 - REST API untuk kontrol gateway (start/stop/restart/status)
-- REST API untuk check update dan update binary otomatis
+- REST API untuk check update dan update binary via `update_picoclaw.sh`
 - Auto-start gateway saat service dimulai
+
+## Init — Download Semua File dari GitHub
+
+Saat pertama kali setup, download semua file yang dibutuhkan:
+
+```bash
+REPO_RAW="https://raw.githubusercontent.com/muava12/picoclaw-fork/main"
+SKILL_RAW="${REPO_RAW}/workspace/skills/picoclaw-life/scripts"
+
+# 1. Install manager service (otomatis download picoclaw_manager.py)
+curl -fsSL ${REPO_RAW}/setup_picoclaw_manager.sh | bash -s install
+
+# 2. Download update script ke /opt/picoclaw/
+sudo curl -fsSL ${SKILL_RAW}/update_picoclaw.sh -o /opt/picoclaw/update_picoclaw.sh
+sudo chmod +x /opt/picoclaw/update_picoclaw.sh
+```
+
+### File yang dibutuhkan
+
+| File | Lokasi | Fungsi |
+|------|---------|--------|
+| `picoclaw` (binary) | `~/.local/bin/picoclaw` | Gateway utama |
+| `picoclaw_manager.py` | `/opt/picoclaw/` | API server manager |
+| `update_picoclaw.sh` | `/opt/picoclaw/` | Script update binary (dipanggil oleh manager) |
+| `setup_picoclaw_manager.sh` | Via curl (tidak perlu simpan) | Installer service |
 
 ## API Endpoints
 
@@ -34,65 +61,27 @@ systemd → picoclaw_manager.py (port 8321) → picoclaw gateway
 |--------|----------|--------|
 | `GET` | `/api/health` | Health check manager |
 | `GET` | `/api/picoclaw/status` | Status gateway (running, pid, uptime, recent logs) |
-| `GET` | `/api/picoclaw/check-update` | Cek apakah ada versi baru di GitHub releases |
+| `GET` | `/api/picoclaw/check-update` | Cek versi baru di GitHub releases |
 | `POST` | `/api/picoclaw/start` | Start gateway |
 | `POST` | `/api/picoclaw/stop` | Stop gateway |
 | `POST` | `/api/picoclaw/restart` | Restart gateway |
-| `POST` | `/api/picoclaw/update` | Download & install versi terbaru (auto-stop gateway) |
+| `POST` | `/api/picoclaw/update` | Update binary via update_picoclaw.sh (auto stop/start) |
 
-## Setup (Pertama Kali)
+## Update Binary
 
-Script otomatis download `picoclaw_manager.py` dari GitHub — cukup satu perintah:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/muava12/picoclaw-fork/main/setup_picoclaw_manager.sh | bash -s install
-```
-
-Ini akan:
-- Download `picoclaw_manager.py` dari GitHub ke `/opt/picoclaw/`
-- Buat systemd service `picoclaw-manager`
-- Enable auto-start on boot
-- Start (atau restart jika sudah ada) service
-
-### Verifikasi
-
-```bash
-curl -s http://localhost:8321/api/health
-```
-
-## Install / Update Binary PicoClaw
-
-Binary picoclaw sendiri di-install terpisah:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/muava12/picoclaw-fork/main/install_picoclaw.sh | bash
-```
-
-Script ini otomatis **stop gateway yang sedang berjalan** sebelum replace binary. User harus start manual setelah update.
-
-Atau update via manager API (otomatis download dari GitHub releases):
+Selalu gunakan Manager API:
 
 ```bash
 # Cek apakah ada versi baru
 curl -s http://localhost:8321/api/picoclaw/check-update
 
-# Update langsung (auto-stop gateway, download, replace binary)
+# Update langsung (auto stop/start gateway)
 curl -s -X POST http://localhost:8321/api/picoclaw/update
 ```
 
-## Update Manager Script
+Flow: manager stop gateway → jalankan `update_picoclaw.sh` → restart gateway otomatis.
 
-Untuk update picoclaw_manager.py ke versi terbaru:
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/muava12/picoclaw-fork/main/setup_picoclaw_manager.sh | bash -s update
-```
-
-Atau jalankan ulang install (aman, akan restart service):
-
-```bash
-curl -fsSL https://raw.githubusercontent.com/muava12/picoclaw-fork/main/setup_picoclaw_manager.sh | bash -s install
-```
+> ⚠️ **JANGAN gunakan `install_picoclaw.sh` untuk update** — script itu akan mematikan manager dan membutuhkan manual restart. Selalu gunakan API di atas.
 
 ## Perintah Harian
 
@@ -114,26 +103,21 @@ curl -s http://localhost:8321/api/picoclaw/check-update
 curl -s -X POST http://localhost:8321/api/picoclaw/update
 ```
 
-### Restart gateway
+### Restart / Start / Stop gateway
 
 ```bash
 curl -s -X POST http://localhost:8321/api/picoclaw/restart
-```
-
-### Start/stop gateway
-
-```bash
 curl -s -X POST http://localhost:8321/api/picoclaw/start
 curl -s -X POST http://localhost:8321/api/picoclaw/stop
 ```
 
-### Lihat log terakhir (via systemd)
+### Lihat log terakhir
 
 ```bash
 journalctl -u picoclaw-manager --no-pager -n 30
 ```
 
-### Follow live log (via systemd)
+### Follow live log
 
 > ⚠️ **JANGAN jalankan dari exec tool** — streaming tidak akan selesai.
 
@@ -141,23 +125,14 @@ journalctl -u picoclaw-manager --no-pager -n 30
 journalctl -u picoclaw-manager -f
 ```
 
-## CI/CD
-
-Build otomatis via GitHub Actions (`build-fork.yml`):
-- Trigger: push ke `main` atau manual dispatch
-- Matrix build: **ARM64** + **AMD64** secara paralel
-- Release: kedua binary diupload ke satu tag release (`v0.1.2-fork-0.N`)
-- Notifikasi: ntfy push saat build start/success/fail
-
-Untuk push tanpa trigger CI, tambahkan `[skip ci]` di commit message.
-
 ## Rules
 
-1. **Prefer curl API** — untuk start/stop/restart/status/update, gunakan curl ke `localhost:8321` karena lebih cepat dan tidak butuh sudo.
-2. **Gunakan `journalctl -n N`** untuk log — jangan pakai `-f` (streaming) dari exec tool.
-3. **Install cukup sekali** — setup script download semua dari GitHub, tidak perlu file lokal.
+1. **Prefer curl API** — untuk start/stop/restart/status/update, gunakan curl ke `localhost:8321`.
+2. **Gunakan `journalctl -n N`** untuk log — jangan pakai `-f` dari exec tool.
+3. **Install cukup sekali** — setup script download semua dari GitHub.
 4. **Re-install aman** — menjalankan `install` ulang akan restart service dengan script terbaru.
-5. **Update binary via API** — gunakan `/api/picoclaw/update` untuk update binary tanpa SSH manual.
+5. **Update binary via API** — gunakan `/api/picoclaw/update` untuk update tanpa SSH manual.
+6. **update_picoclaw.sh harus ada** — pastikan file ini ada di `/opt/picoclaw/` untuk update via manager.
 
 ## Config
 

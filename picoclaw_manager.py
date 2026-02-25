@@ -271,36 +271,8 @@ class PicoClawManager:
             }
 
     def update(self) -> dict:
-        """Download and install latest version. Stops gateway first."""
+        """Run update_picoclaw.sh, stops gateway before and restarts after."""
         try:
-            check = self.check_update()
-            if not check.get("update_available"):
-                return {
-                    "success": True,
-                    "message": f"Already on latest version {check.get('installed_version')}. No action needed.",
-                    "updated": False,
-                }
-
-            latest = check["latest_version"]
-            arch = self._detect_arch()
-            download_url = (
-                f"https://github.com/{self.repo}/releases/latest/download/"
-                f"picoclaw_Linux_{arch}.tar.gz"
-            )
-
-            log.info("Downloading picoclaw %s (%s)...", latest, arch)
-
-            # Download to temp
-            tmp_tar = "/tmp/picoclaw_update.tar.gz"
-            urllib.request.urlretrieve(download_url, tmp_tar)
-
-            # Extract binary
-            subprocess.run(
-                ["tar", "-xzf", tmp_tar, "picoclaw", "-C", "/tmp"],
-                check=True, capture_output=True
-            )
-            os.chmod("/tmp/picoclaw", 0o755)
-
             # Stop gateway if running
             was_running = self.is_running
             if was_running:
@@ -308,40 +280,63 @@ class PicoClawManager:
                 self.stop()
                 time.sleep(1)
 
-            # Replace binary
-            import shutil
-            shutil.move("/tmp/picoclaw", self.picoclaw_bin)
-            os.remove(tmp_tar)
+            # Run update script
+            script = os.path.join(os.path.dirname(__file__), "update_picoclaw.sh")
+            if not os.path.isfile(script):
+                # Download update script if not present
+                script = "/tmp/update_picoclaw.sh"
+                urllib.request.urlretrieve(
+                    f"https://raw.githubusercontent.com/{self.repo}/main/workspace/skills/picoclaw-life/scripts/update_picoclaw.sh",
+                    script,
+                )
+                os.chmod(script, 0o755)
 
-            new_version = self._get_installed_version()
-            log.info("✓ Updated picoclaw: %s → %s", check["installed_version"], new_version)
+            result = subprocess.run(
+                ["bash", script],
+                capture_output=True, text=True, timeout=120,
+                env={**os.environ, "HOME": os.path.expanduser("~")},
+            )
 
-            # Auto-restart gateway if it was running before
+            # Parse JSON from last line of stdout
+            output_lines = result.stdout.strip().splitlines()
+            json_line = output_lines[-1] if output_lines else "{}"
+            try:
+                data = json.loads(json_line)
+            except json.JSONDecodeError:
+                data = {"success": result.returncode == 0, "message": result.stdout, "updated": False}
+
+            if not data.get("success"):
+                # Restart gateway even if update failed
+                if was_running:
+                    self.start()
+                return data
+
+            log.info("✓ %s", data.get("message", "Update complete"))
+
+            # Auto-restart gateway if it was running
             restarted = False
             if was_running:
                 log.info("Restarting gateway with new binary...")
                 start_result = self.start()
                 restarted = start_result.get("success", False)
 
-            return {
-                "success": True,
-                "message": f"Update complete: {check['installed_version']} → {new_version}." + (
-                    " Gateway restarted successfully." if restarted else
-                    " Gateway was not running, start manually via POST /api/picoclaw/start." if not was_running else
-                    " Gateway restart failed, start manually via POST /api/picoclaw/start."
-                ),
-                "updated": True,
-                "previous_version": check["installed_version"],
-                "new_version": new_version,
-                "was_running": was_running,
-                "restarted": restarted,
-            }
+            data["was_running"] = was_running
+            data["restarted"] = restarted
+            if restarted:
+                data["message"] += " Gateway restarted successfully."
+            elif was_running:
+                data["message"] += " Gateway restart failed, start manually via POST /api/picoclaw/start."
+
+            return data
 
         except Exception as e:
             log.error("✗ Update failed: %s", e)
+            # Try to restart gateway if it was stopped
+            if was_running:
+                self.start()
             return {
                 "success": False,
-                "message": f"Update failed: {str(e)}. Gateway may still be stopped. Check status via GET /api/picoclaw/status.",
+                "message": f"Update failed: {str(e)}. Check status via GET /api/picoclaw/status.",
                 "updated": False,
                 "next_action": "GET /api/picoclaw/status",
             }
