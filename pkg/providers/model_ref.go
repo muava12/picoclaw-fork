@@ -45,6 +45,7 @@ var knownProviderPrefixes = map[string]struct{}{
 	"nvidia":         {},
 	"ollama":         {},
 	"moonshot":       {},
+	"naga":           {},
 	"shengsuanyun":   {},
 	"deepseek":       {},
 	"cerebras":       {},
