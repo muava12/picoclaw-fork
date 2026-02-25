@@ -1,4 +1,4 @@
-name: Build Linux AMD64 (GoReleaser)
+name: Build Fork (Linux ARM64 + AMD64)
 
 on:
   workflow_dispatch:
@@ -8,16 +8,19 @@ on:
     branches: [ "main" ]
 
 jobs:
-  build-amd64:
-    name: Build Linux AMD64
+  build:
+    name: Build Linux ${{ matrix.arch }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    strategy:
+      matrix:
+        arch: [arm64, amd64]
     steps:
       - name: 📢 Notify Start
         run: |
           curl \
-            -H "Title: Deploy picoclaw Linux AMD64 Started 🚀" \
+            -H "Title: Deploy picoclaw Linux ${{ matrix.arch }} Started 🚀" \
             -H "Tags: rocket,construction_worker" \
             -H "Priority: default" \
             -d "Branch: ${{ github.ref_name }} | Commit: ${{ github.sha }}" \
@@ -37,27 +40,18 @@ jobs:
       - name: Determine Fork Version
         id: version
         run: |
-          # Dapatkan tag terbaru dari history (mungkin sudah ada akhiran -fork)
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.0.0")
+          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.1.2")
+          BASE_TAG=$(echo "$LATEST_TAG" | sed -E 's/-fork-[0-9.]+//g')
+          FORK_VERSION="${BASE_TAG}-fork-0.${{ github.run_number }}"
           
-          # Hilangkan akhiran -fork-* agar kita mendapatkan base version aslinya (misal: v0.1.2)
-          BASE_TAG=$(echo "$LATEST_TAG" | sed -E 's/-fork-[0-9]+//g')
-          
-          # Format increment number menggunakan run number (misal: 01, 02)
-          RUN_NUM=$(printf "%02d" ${{ github.run_number }})
-          
-          # Gabungkan menjadi versi custom untuk fork
-          FORK_VERSION="${BASE_TAG}-fork-${RUN_NUM}"
-          
-          echo "Ditemukan tag asli: $BASE_TAG"
-          echo "Versi fork yang digunakan: $FORK_VERSION"
+          echo "Versi fork: $FORK_VERSION"
           echo "FORK_VERSION=$FORK_VERSION" >> $GITHUB_ENV
 
-      - name: Restrict GoReleaser to linux/amd64
+      - name: Restrict GoReleaser to linux/${{ matrix.arch }}
         run: |
           yq -i '.project_name = "picoclaw"' .goreleaser.yaml
           yq -i '.builds[0].goos = ["linux"]' .goreleaser.yaml
-          yq -i '.builds[0].goarch = ["amd64"]' .goreleaser.yaml
+          yq -i '.builds[0].goarch = ["${{ matrix.arch }}"]' .goreleaser.yaml
           yq -i 'del(.builds[0].ignore)' .goreleaser.yaml
           yq -i 'del(.dockers_v2)' .goreleaser.yaml
           yq -i '.snapshot.version_template = "{{ .Env.GORELEASER_CURRENT_TAG }}"' .goreleaser.yaml
@@ -70,13 +64,12 @@ jobs:
           args: release --clean --snapshot
         env:
           GOVERSION: ${{ steps.setup-go.outputs.go-version }}
-          # Override GORELEASER_CURRENT_TAG agar binary terkompilasi dengan versi yang benar
           GORELEASER_CURRENT_TAG: ${{ env.FORK_VERSION }}
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
-          name: picoclaw-linux-amd64-${{ env.FORK_VERSION }}
+          name: picoclaw-linux-${{ matrix.arch }}-${{ env.FORK_VERSION }}
           path: dist/*.tar.gz
           if-no-files-found: warn
 
@@ -84,27 +77,27 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          # Coba buat release baru, jika sudah ada maka upload asset saja
-          gh release create "${{ env.FORK_VERSION }}" dist/*.tar.gz \
+          # Coba upload ke existing release dulu (lebih aman untuk matrix jobs)
+          gh release upload "${{ env.FORK_VERSION }}" dist/*.tar.gz --clobber 2>/dev/null \
+          || gh release create "${{ env.FORK_VERSION }}" dist/*.tar.gz \
             --title "Fork Build ${{ env.FORK_VERSION }}" \
-            --notes "Automated release from branch ${{ github.ref_name }}." \
-          || gh release upload "${{ env.FORK_VERSION }}" dist/*.tar.gz --clobber
+            --notes "Automated release from branch ${{ github.ref_name }}."
 
       - name: 📢 Notify Success
         if: success()
         run: |
           curl \
-            -H "Title: Deploy picoclaw Linux AMD64 Success ✅" \
+            -H "Title: Deploy picoclaw Linux ${{ matrix.arch }} Success ✅" \
             -H "Tags: white_check_mark,partying_face" \
             -H "Priority: high" \
-            -d "Build artifact picoclaw-linux-amd64-${{ env.FORK_VERSION }} has been successfully uploaded." \
+            -d "Build artifact picoclaw-linux-${{ matrix.arch }}-${{ env.FORK_VERSION }} has been successfully uploaded." \
             https://ntfy.sh/deploy-on-github-xasr6KBz47PjswPf53A78Fib
 
       - name: 📢 Notify Failure
         if: failure()
         run: |
           curl \
-            -H "Title: Deploy picoclaw Linux AMD64 Failed ❌" \
+            -H "Title: Deploy picoclaw Linux ${{ matrix.arch }} Failed ❌" \
             -H "Tags: x,skull" \
             -H "Priority: urgent" \
             -d "Build failed on branch ${{ github.ref_name }}. Please check the GitHub Actions logs." \
