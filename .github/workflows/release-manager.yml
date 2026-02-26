@@ -1,0 +1,49 @@
+name: Release PicoClaw Manager
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version string (e.g. v0.0.1)"
+        required: true
+        type: string
+
+jobs:
+  release-manager:
+    name: Build & Release Manager
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          
+      - name: Build
+        run: |
+          mkdir -p dist
+          LDFLAGS="-s -w -X main.version=${{ inputs.version }}"
+          
+          echo "Building linux/amd64..."
+          GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/picoclaw-manager-linux-amd64 ./cmd/manager
+          
+          echo "Building linux/arm64..."
+          GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/picoclaw-manager-linux-arm64 ./cmd/manager
+          
+          echo "Building darwin/arm64..."
+          GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/picoclaw-manager-darwin-arm64 ./cmd/manager
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="piman-${{ inputs.version }}"
+          
+          gh release create "$TAG" dist/* \
+            --title "PicoClaw Manager ${{ inputs.version }}" \
+            --notes "Automated release of PicoClaw Manager (piman)." \
+            --target main

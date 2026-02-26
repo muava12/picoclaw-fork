@@ -81,8 +81,11 @@ build: generate
 	@echo "Building $(BINARY_NAME) for $(PLATFORM)/$(ARCH)..."
 	@mkdir -p $(BUILD_DIR)
 	@$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BINARY_PATH) ./$(CMD_DIR)
+	@echo "Building picoclaw-manager for $(PLATFORM)/$(ARCH)..."
+	@$(GO) build $(GOFLAGS) $(LDFLAGS) -o $(BUILD_DIR)/picoclaw-manager-$(PLATFORM)-$(ARCH) ./cmd/manager
 	@echo "Build complete: $(BINARY_PATH)"
 	@ln -sf $(BINARY_NAME)-$(PLATFORM)-$(ARCH) $(BUILD_DIR)/$(BINARY_NAME)
+	@ln -sf picoclaw-manager-$(PLATFORM)-$(ARCH) $(BUILD_DIR)/picoclaw-manager
 
 ## build-all: Build picoclaw for all platforms
 build-all: generate
@@ -94,6 +97,10 @@ build-all: generate
 	GOOS=linux GOARCH=riscv64 $(GO) build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-linux-riscv64 ./$(CMD_DIR)
 	GOOS=darwin GOARCH=arm64 $(GO) build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-darwin-arm64 ./$(CMD_DIR)
 	GOOS=windows GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BUILD_DIR)/$(BINARY_NAME)-windows-amd64.exe ./$(CMD_DIR)
+	@echo "Building picoclaw-manager for multiple platforms..."
+	GOOS=linux GOARCH=amd64 $(GO) build $(LDFLAGS) -o $(BUILD_DIR)/picoclaw-manager-linux-amd64 ./cmd/manager
+	GOOS=linux GOARCH=arm64 $(GO) build $(LDFLAGS) -o $(BUILD_DIR)/picoclaw-manager-linux-arm64 ./cmd/manager
+	GOOS=darwin GOARCH=arm64 $(GO) build $(LDFLAGS) -o $(BUILD_DIR)/picoclaw-manager-darwin-arm64 ./cmd/manager
 	@echo "All builds complete"
 
 ## install: Install picoclaw to system and copy builtin skills

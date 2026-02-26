@@ -7,10 +7,11 @@ set -e
 
 SERVICE_NAME="picoclaw-manager"
 INSTALL_DIR="/opt/picoclaw"
-SCRIPT_NAME="picoclaw_manager.py"
+BINARY_NAME="picoclaw-manager"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 PICOCLAW_BIN="$HOME/.local/bin/picoclaw"
 RUN_USER="$(whoami)"
+REPO="muava12/picoclaw-fork"
 
 # ── Warna ─────────────────────────────────────────
 R='\033[0;31m' G='\033[0;32m' B='\033[0;34m'
@@ -29,26 +30,50 @@ success() { echo -e "  ${G}✓${X} $1"; }
 warn()    { echo -e "  ${Y}!${X} $1"; }
 err()     { echo -e "  ${R}✗${X} $1"; }
 
-# ── Install ───────────────────────────────────────
-REPO_RAW="https://raw.githubusercontent.com/muava12/picoclaw-fork/main"
+get_latest_manager_version() {
+    # Mengambil daftar rilis terbaru, mencari tag yang diawali "piman-", lalu memisahkan versinya.
+    curl -s "https://api.github.com/repos/${REPO}/releases" | \
+        grep '"tag_name": "piman-' | head -n 1 | sed -E 's/.*"tag_name": "piman-([^"]+)".*/\1/'
+}
 
+# ── Install ───────────────────────────────────────
 cmd_install() {
   banner
   info "Installing ${SERVICE_NAME}..."
   echo ""
 
-  # Download picoclaw_manager.py dari GitHub
-  info "Downloading ${SCRIPT_NAME} dari GitHub..."
-  sudo mkdir -p "$INSTALL_DIR"
-  sudo curl -fsSL "${REPO_RAW}/${SCRIPT_NAME}" -o "${INSTALL_DIR}/${SCRIPT_NAME}"
-  sudo chmod +x "${INSTALL_DIR}/${SCRIPT_NAME}"
-  success "Script downloaded"
+  # Detect architecture
+  ARCH=$(uname -m)
+  case "$ARCH" in
+      x86_64|amd64)  ARCH="amd64" ;;
+      aarch64|arm64) ARCH="arm64" ;;
+      *)
+          err "Unsupported architecture: $ARCH for pre-compiled manager"
+          exit 1
+          ;;
+  esac
 
-  # Copy .env jika ada
-  if [ -f "${SCRIPT_DIR}/.env" ]; then
-    sudo cp "${SCRIPT_DIR}/.env" "${INSTALL_DIR}/.env"
-    success ".env copied"
+  VERSION=$(get_latest_manager_version)
+  if [ -z "$VERSION" ]; then
+      err "Gagal mendapatkan versi rilis terbaru manager dari $REPO"
+      info "Pastikan ada rilis dengan tag berawalan 'piman-'"
+      exit 1
   fi
+
+  DL_URL="https://github.com/${REPO}/releases/download/piman-${VERSION}/picoclaw-manager-linux-${ARCH}"
+
+  info "Downloading $BINARY_NAME (${VERSION}) dari GitHub Releases..."
+  sudo mkdir -p "$INSTALL_DIR"
+  sudo curl -fsSL -o "${INSTALL_DIR}/${BINARY_NAME}" "$DL_URL" || {
+      err "Gagal mendownload binary dari $DL_URL"
+      exit 1
+  }
+  sudo chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
+  success "Binary downloaded"
+
+  # Buat symlink piman
+  sudo ln -sf "${INSTALL_DIR}/${BINARY_NAME}" /usr/local/bin/piman
+  success "CLI terhubung: jalankan 'piman' dari mana saja"
 
   # Buat systemd service
   info "Creating systemd service..."
@@ -62,12 +87,11 @@ Wants=network-online.target
 Type=simple
 User=${RUN_USER}
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=/usr/bin/python3 ${INSTALL_DIR}/${SCRIPT_NAME} --auto-start --picoclaw-bin ${PICOCLAW_BIN}
+ExecStart=${INSTALL_DIR}/${BINARY_NAME} server --auto-start --picoclaw-bin ${PICOCLAW_BIN}
 Restart=always
 RestartSec=5
 StandardOutput=journal
 StandardError=journal
-Environment=PYTHONUNBUFFERED=1
 
 [Install]
 WantedBy=multi-user.target
@@ -84,8 +108,8 @@ UNIT
   success "Service started"
 
   echo ""
-  info "Cek status: ${W}$0 status${X}"
-  info "Lihat log:  ${W}$0 logs${X}"
+  info "Gunakan CLI piman: ${W}piman status${X}"
+  info "Lihat log CLI:     ${W}piman logs${X}"
   echo ""
 }
 
@@ -116,6 +140,8 @@ cmd_uninstall() {
     fi
   fi
 
+  sudo rm -f /usr/local/bin/piman
+
   success "Uninstall selesai"
   echo ""
 }
@@ -123,11 +149,22 @@ cmd_uninstall() {
 # ── Update ────────────────────────────────────────
 cmd_update() {
   banner
-  info "Updating ${SCRIPT_NAME}..."
+  info "Updating ${BINARY_NAME}..."
 
-  sudo curl -fsSL "${REPO_RAW}/${SCRIPT_NAME}" -o "${INSTALL_DIR}/${SCRIPT_NAME}"
-  sudo chmod +x "${INSTALL_DIR}/${SCRIPT_NAME}"
-  success "Script updated"
+  ARCH=$(uname -m)
+  case "$ARCH" in
+      x86_64|amd64)  ARCH="amd64" ;;
+      aarch64|arm64) ARCH="arm64" ;;
+  esac
+  VERSION=$(get_latest_manager_version)
+  if [ -z "$VERSION" ]; then
+      err "Gagal menemukan rilis baru."
+      exit 1
+  fi
+  DL_URL="https://github.com/${REPO}/releases/download/piman-${VERSION}/picoclaw-manager-linux-${ARCH}"
+
+  sudo curl -fsSL -o "${INSTALL_DIR}/${BINARY_NAME}" "$DL_URL"
+  success "Binary manager updated"
 
   sudo systemctl restart "$SERVICE_NAME"
   success "Service restarted"
@@ -145,30 +182,11 @@ cmd_status() {
   echo ""
   sudo systemctl status "$SERVICE_NAME" --no-pager -l 2>/dev/null || warn "Service not found"
   echo ""
-
-  # Cek API health
-  if command -v curl &> /dev/null; then
-    echo -e "  ${W}API Health Check:${X}"
+  
+  if command -v piman &> /dev/null; then
+    echo -e "  ${W}API Status via piman:${X}"
     echo ""
-    RESPONSE=$(curl -s http://localhost:8321/api/health 2>/dev/null || echo "unreachable")
-    if echo "$RESPONSE" | grep -q '"ok"'; then
-      success "API is responding: ${RESPONSE}"
-    else
-      warn "API not responding"
-    fi
-    echo ""
-
-    echo -e "  ${W}PicoClaw Gateway:${X}"
-    echo ""
-    GW_STATUS=$(curl -s http://localhost:8321/api/picoclaw/status 2>/dev/null || echo "{}")
-    RUNNING=$(echo "$GW_STATUS" | grep -o '"running": *[a-z]*' | head -1 | awk '{print $2}')
-    PID=$(echo "$GW_STATUS" | grep -o '"pid": *[0-9]*' | head -1 | awk '{print $2}')
-    if [ "$RUNNING" = "true" ]; then
-      success "Gateway running (PID: ${PID})"
-    else
-      warn "Gateway not running"
-    fi
-    echo ""
+    piman status
   fi
 }
 

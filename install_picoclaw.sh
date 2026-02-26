@@ -163,6 +163,29 @@ print_success "Installed to $INSTALL_DIR/$BINARY_NAME"
 print_success "Version: $VERSION"
 
 echo ""
+print_step "Optional Components"
+echo "  PicoClaw Manager (piman) is a background service and CLI tool"
+echo "  that manages the PicoClaw process lifecycle (start, stop, logs)"
+echo "  and provides a memory-efficient HTTP API for integrations."
+echo ""
+if [ -t 0 ]; then
+    read -p "Do you want to install PicoClaw Manager (piman)? [y/N] " -n 1 -r
+else
+    read -p "Do you want to install PicoClaw Manager (piman)? [y/N] " -n 1 -r < /dev/tty
+fi
+echo ""
+if [[ $REPLY =~ ^[Yy]$ ]]; then
+    print_step "Installing PicoClaw Manager..."
+    if command -v curl &> /dev/null; then
+        curl -fsSL https://raw.githubusercontent.com/${REPO}/main/setup_picoclaw_manager.sh | bash -s install
+    else
+        wget -qO- https://raw.githubusercontent.com/${REPO}/main/setup_picoclaw_manager.sh | bash -s install
+    fi
+else
+    print_step "Skipping Manager installation"
+fi
+
+echo ""
 PATH_CHANGED=false
 if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
     print_step "Fixing PATH..."
