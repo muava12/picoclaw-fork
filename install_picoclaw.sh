@@ -29,10 +29,19 @@ print_warn() {
 
 get_latest_version() {
     local repo="$1"
-    # Mengambil daftar rilis dari API, mencari tag_name yang TIDAK mengandung "piman", 
-    # mengambil yang pertama, lalu mengekstrak versinya.
-    curl -s "https://api.github.com/repos/${repo}/releases" | \
-        grep '"tag_name":' | grep -v 'piman' | head -n 1 | sed -E 's/.*"tag_name": "([^"]+)".*/\1/'
+    local tags
+    tags=$(curl -s "https://api.github.com/repos/${repo}/releases" | grep '"tag_name":' | grep -v 'piman' | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
+    
+    local latest=""
+    if echo "$tags" | grep -q '\-fork-0\.'; then
+        # This is the new fork schema (e.g. v0.1.2-fork-0.14). 
+        # We isolate them so sort -V doesn't get confused by older schema like v0.1.2-fork-21
+        latest=$(echo "$tags" | grep '\-fork-0\.' | sort -V | tail -n 1)
+    else
+        # Standard upstream schema or old fork schema
+        latest=$(echo "$tags" | sort -V | tail -n 1)
+    fi
+    echo "$latest"
 }
 
 # Detect system architecture
