@@ -313,8 +313,8 @@ func (m *Manager) Update() map[string]interface{} {
 	}
 
 	// Buat sementara ini, update bisa didelegasikan ke script shell atau download langsung.
-	// Kita delegate ke install_picoclaw.sh
-	scriptURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/main/install_picoclaw.sh", m.Repo)
+	// Kita delegate ke update_picoclaw.sh
+	scriptURL := fmt.Sprintf("https://raw.githubusercontent.com/%s/main/workspace/skills/picoclaw-life/scripts/update_picoclaw.sh", m.Repo)
 	cmdStr := fmt.Sprintf("curl -fsSL %s | bash", scriptURL)
 	
 	cmd := exec.Command("bash", "-c", cmdStr)
