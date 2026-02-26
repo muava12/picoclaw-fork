@@ -40,7 +40,7 @@ jobs:
       - name: Determine Fork Version
         id: version
         run: |
-          LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "v0.1.2")
+          LATEST_TAG=$(git describe --tags --match="v[0-9]*" --abbrev=0 2>/dev/null || echo "v0.1.2")
           BASE_TAG=$(echo "$LATEST_TAG" | sed -E 's/-fork-[0-9.]+//g')
           FORK_VERSION="${BASE_TAG}-fork-0.${{ github.run_number }}"
           
