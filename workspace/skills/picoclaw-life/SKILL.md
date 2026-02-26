@@ -20,12 +20,12 @@ Manage PicoClaw gateway lifecycle: install sebagai systemd service, start/stop/r
 ## Arsitektur
 
 ```
-systemd → picoclaw_manager.py (port 8321) → picoclaw gateway
+systemd → picoclaw-manager (port 8321) → picoclaw gateway
                   ↓ (saat update)
            update_picoclaw.sh → download binary dari GitHub releases
 ```
 
-- `picoclaw_manager.py` jalan sebagai systemd service (`picoclaw-manager`)
+- `picoclaw-manager` (Go binary) jalan sebagai systemd service (`picoclaw-manager`)
 - REST API untuk kontrol gateway (start/stop/restart/status)
 - REST API untuk check update dan update binary via `update_picoclaw.sh`
 - Auto-start gateway saat service dimulai
@@ -55,7 +55,7 @@ chmod +x "${SCRIPTS_DIR}/update_picoclaw.sh"
 | File | Lokasi | Fungsi |
 |------|---------|--------|
 | `picoclaw` (binary) | `~/.local/bin/picoclaw` | Gateway utama |
-| `picoclaw_manager.py` | `/DATA/.picoclaw/workspace/skills/picoclaw-life/scripts/` | API server manager |
+| `picoclaw-manager` (Go) | `/opt/picoclaw/picoclaw-manager` | API server manager |
 | `update_picoclaw.sh` | `/DATA/.picoclaw/workspace/skills/picoclaw-life/scripts/` | Script update binary (dipanggil oleh manager) |
 | `setup_picoclaw_manager.sh` | Via curl (tidak perlu simpan) | Installer service |
 
