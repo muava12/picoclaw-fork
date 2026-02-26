@@ -36,7 +36,7 @@ Saat pertama kali setup, download semua file yang dibutuhkan ke direktori skill 
 
 ```bash
 # Direktori lokal skill
-SKILL_DIR="/DATA/.picoclaw/workspace/skills/picoclaw-life"
+SKILL_DIR="~/.picoclaw/workspace/skills/picoclaw-life"
 SCRIPTS_DIR="${SKILL_DIR}/scripts"
 
 # 1. Pastikan direktori scripts ada
@@ -56,7 +56,7 @@ chmod +x "${SCRIPTS_DIR}/update_picoclaw.sh"
 |------|---------|--------|
 | `picoclaw` (binary) | `~/.local/bin/picoclaw` | Gateway utama |
 | `picoclaw-manager` (Go) | `/opt/picoclaw/picoclaw-manager` | API server manager |
-| `update_picoclaw.sh` | `/DATA/.picoclaw/workspace/skills/picoclaw-life/scripts/` | Script update binary (dipanggil oleh manager) |
+| `update_picoclaw.sh` | `~/.picoclaw/workspace/skills/picoclaw-life/scripts/` | Script update binary (dipanggil oleh manager) |
 | `setup_picoclaw_manager.sh` | Via curl (tidak perlu simpan) | Installer service |
 
 ## API Endpoints
@@ -82,7 +82,7 @@ piman update
 
 Flow: manager stop gateway → jalankan `update_picoclaw.sh` → restart gateway otomatis.
 
-> 📝 **Auto-update versi di IDENTITY.md**: Setelah update berhasil, versi di file `IDENTITY.md` di direktori workspace `/DATA/.picoclaw/workspace/` akan otomatis diperbarui ke versi terbaru.
+> 📝 **Auto-update versi di IDENTITY.md**: Setelah update berhasil, versi di file `IDENTITY.md` di direktori workspace `~/.picoclaw/workspace/` akan otomatis diperbarui ke versi terbaru.
 
 > ⚠️ **JANGAN gunakan `install_picoclaw.sh` untuk update** — script itu akan mematikan manager dan membutuhkan manual restart. Selalu gunakan `piman update` di atas.
 
@@ -120,13 +120,13 @@ journalctl -u picoclaw-manager -f
 3. **Install cukup sekali** — setup script download semua dari GitHub.
 4. **Re-install aman** — menjalankan `install` ulang akan restart service dengan script terbaru.
 5. **Update binary via CLI** — gunakan `piman update` untuk update dengan aman secara otomatis.
-6. **update_picoclaw.sh harus ada** — pastikan file ini di `/DATA/.picoclaw/workspace/skills/picoclaw-life/scripts/` untuk update.
+6. **update_picoclaw.sh harus ada** — pastikan file ini di `~/.picoclaw/workspace/skills/picoclaw-life/scripts/` untuk update.
 
 ## Config
 
 - **Binary PicoClaw**: `~/.local/bin/picoclaw`
 - **Config**: `~/.picoclaw/config.json`
 - **Port Manager API**: `8321`
-- **Install dir**: `/DATA/.picoclaw/workspace/skills/picoclaw-life/scripts/`
+- **Install dir**: `~/.picoclaw/workspace/skills/picoclaw-life/scripts/`
 - **Service**: `picoclaw-manager.service`
 - **Repo**: `muava12/picoclaw-fork`
