@@ -7,13 +7,6 @@ on:
         description: "Version string (e.g. v0.0.1)"
         required: false
         type: string
-  push:
-    branches:
-      - main
-    paths:
-      - "cmd/manager/**"
-      - "setup_picoclaw_manager.sh"
-      - ".github/workflows/release-manager.yml"
 
 jobs:
   release-manager:
