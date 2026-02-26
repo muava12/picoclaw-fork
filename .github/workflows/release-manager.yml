@@ -1,0 +1,75 @@
+name: Release PicoClaw Manager
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version string (e.g. v0.0.1)"
+        required: false
+        type: string
+  push:
+    branches:
+      - main
+    paths:
+      - "cmd/manager/**"
+      - "setup_picoclaw_manager.sh"
+      - ".github/workflows/release-manager.yml"
+
+jobs:
+  release-manager:
+    name: Build & Release Manager
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          
+      - name: Determine Version
+        id: version
+        run: |
+          if [ -n "${{ inputs.version }}" ]; then
+            VERSION="${{ inputs.version }}"
+          else
+            VERSION=$(grep -oE 'version[[:space:]]+=[[:space:]]+"[^"]+"' cmd/manager/main.go | cut -d '"' -f 2)
+            if [ -z "$VERSION" ]; then
+              VERSION="0.0.1"
+            fi
+            # Add v prefix if not present
+            if [[ "$VERSION" != v* ]]; then
+              VERSION="v$VERSION"
+            fi
+          fi
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+          
+      - name: Build
+        run: |
+          mkdir -p dist
+          LDFLAGS="-s -w -X main.version=${{ env.VERSION }}"
+          
+          echo "Building linux/amd64..."
+          GOOS=linux GOARCH=amd64 go build -ldflags "$LDFLAGS" -o dist/picoclaw-manager-linux-amd64 ./cmd/manager
+          
+          echo "Building linux/arm64..."
+          GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/picoclaw-manager-linux-arm64 ./cmd/manager
+          
+          echo "Building darwin/arm64..."
+          GOOS=darwin GOARCH=arm64 go build -ldflags "$LDFLAGS" -o dist/picoclaw-manager-darwin-arm64 ./cmd/manager
+
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="piman-${{ env.VERSION }}"
+          
+          gh release delete "$TAG" -y --cleanup-tag 2>/dev/null || true
+          
+          gh release create "$TAG" dist/* \
+            --title "PicoClaw Manager ${{ env.VERSION }}" \
+            --notes "Automated release of PicoClaw Manager (piman)." \
+            --target main
