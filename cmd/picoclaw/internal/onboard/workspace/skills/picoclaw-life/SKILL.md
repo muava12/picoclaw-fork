@@ -85,7 +85,7 @@ curl -s -X POST http://localhost:8321/api/picoclaw/update
 
 Flow: manager stop gateway → jalankan `update_picoclaw.sh` → restart gateway otomatis.
 
-> 📝 **Auto-update versi di IDENTITY.md**: Setelah update berhasil, versi di file `IDENTITY.md` di direktori workspace `/DATA/.picoclaw/workspace/` akan otomatis diperbarui ke versi terbaru.
+> 📝 **Auto-update versi di IDENTITY.md**: Setelah update berhasil, versi di file `IDENTITY.md` di direktori workspace `~/.picoclaw/workspace/` akan otomatis diperbarui ke versi terbaru.
 
 > ⚠️ **JANGAN gunakan `install_picoclaw.sh` untuk update** — script itu akan mematikan manager dan membutuhkan manual restart. Selalu gunakan API di atas.
 
