@@ -1,12 +1,12 @@
 ---
 name: prayer-times
-description: Jadwal sholat otomatis — reminder waktu sholat, sahur, dan buka puasa. Data dari jadwalsholatorg.
+description: Jadwal sholat otomatis — reminder waktu sholat, sahur, dan buka puasa. Data dari github.com/lakuapik/jadwalsholatorg
 metadata: {"nanobot":{"emoji":"🕌"}}
 ---
 
 # Prayer Times / Jadwal Sholat
 
-Reminder otomatis waktu sholat. Data dari [jadwalsholatorg](https://github.com/lakuapik/jadwalsholatorg).
+Reminder otomatis waktu sholat. Data dari [github.com/lakuapik/jadwalsholatorg](https://github.com/lakuapik/jadwalsholatorg).
 Notifikasi dikirim ke **Telegram + ntfy**.
 
 ## Script
