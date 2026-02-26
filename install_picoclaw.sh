@@ -67,6 +67,8 @@ echo "  2) Fork (muava12/picoclaw-fork)"
 echo ""
 read -p "Choose [1-2] (default: 2): " version_choice < /dev/tty
 
+INSTALL_MANAGER=false
+
 if [[ "$version_choice" == "1" ]]; then
     REPO="sipeed/picoclaw"
     echo ""
@@ -75,6 +77,22 @@ else
     REPO="muava12/picoclaw-fork"
     echo ""
     print_step "Selected: ${BOLD}Fork version${RESET}"
+    
+    echo ""
+    print_step "Optional Components"
+    echo "  PicoClaw Manager (piman) is a background service and CLI tool"
+    echo "  that manages the PicoClaw process lifecycle (start, stop, logs)"
+    echo "  and provides a memory-efficient HTTP API for integrations."
+    echo ""
+    if [ -t 0 ]; then
+        read -p "Do you want to install PicoClaw Manager (piman)? [y/N] " -n 1 -r
+    else
+        read -p "Do you want to install PicoClaw Manager (piman)? [y/N] " -n 1 -r < /dev/tty
+    fi
+    echo ""
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+        INSTALL_MANAGER=true
+    fi
 fi
 
 URL="https://github.com/${REPO}/releases/latest/download/picoclaw_Linux_${ARCH}.tar.gz"
@@ -165,26 +183,13 @@ print_success "Installed to $INSTALL_DIR/$BINARY_NAME"
 print_success "Version: $VERSION"
 
 echo ""
-print_step "Optional Components"
-echo "  PicoClaw Manager (piman) is a background service and CLI tool"
-echo "  that manages the PicoClaw process lifecycle (start, stop, logs)"
-echo "  and provides a memory-efficient HTTP API for integrations."
-echo ""
-if [ -t 0 ]; then
-    read -p "Do you want to install PicoClaw Manager (piman)? [y/N] " -n 1 -r
-else
-    read -p "Do you want to install PicoClaw Manager (piman)? [y/N] " -n 1 -r < /dev/tty
-fi
-echo ""
-if [[ $REPLY =~ ^[Yy]$ ]]; then
+if [ "$INSTALL_MANAGER" = true ]; then
     print_step "Installing PicoClaw Manager..."
     if command -v curl &> /dev/null; then
         curl -fsSL https://raw.githubusercontent.com/${REPO}/main/setup_picoclaw_manager.sh | bash -s install
     else
         wget -qO- https://raw.githubusercontent.com/${REPO}/main/setup_picoclaw_manager.sh | bash -s install
     fi
-else
-    print_step "Skipping Manager installation"
 fi
 
 echo ""
