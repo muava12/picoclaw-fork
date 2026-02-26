@@ -7,6 +7,26 @@ import (
 	"time"
 )
 
+// humanDuration formats a time.Duration into a concise human-readable string.
+// Examples: "45s", "4m32s", "1h5m", "2h0m".
+func humanDuration(d time.Duration) string {
+	d = d.Round(time.Second)
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	if d < time.Hour {
+		m := int(d.Minutes())
+		s := int(d.Seconds()) % 60
+		if s == 0 {
+			return fmt.Sprintf("%dm", m)
+		}
+		return fmt.Sprintf("%dm%ds", m, s)
+	}
+	h := int(d.Hours())
+	m := int(d.Minutes()) % 60
+	return fmt.Sprintf("%dh%dm", h, m)
+}
+
 // FallbackChain orchestrates model fallback across multiple candidates.
 type FallbackChain struct {
 	cooldown *CooldownTracker
@@ -102,18 +122,19 @@ func (fc *FallbackChain) Execute(
 			return nil, context.Canceled
 		}
 
+		key := ModelKey(candidate.Provider, candidate.Model)
+
 		// Check cooldown.
-		if !fc.cooldown.IsAvailable(candidate.Provider) {
-			remaining := fc.cooldown.CooldownRemaining(candidate.Provider)
+		if !fc.cooldown.IsAvailable(key) {
+			remaining := fc.cooldown.CooldownRemaining(key)
 			result.Attempts = append(result.Attempts, FallbackAttempt{
 				Provider: candidate.Provider,
 				Model:    candidate.Model,
 				Skipped:  true,
 				Reason:   FailoverRateLimit,
 				Error: fmt.Errorf(
-					"provider %s in cooldown (%s remaining)",
-					candidate.Provider,
-					remaining.Round(time.Second),
+					"skipped (cooldown %s remaining)",
+					humanDuration(remaining),
 				),
 			})
 			continue
@@ -126,7 +147,7 @@ func (fc *FallbackChain) Execute(
 
 		if err == nil {
 			// Success.
-			fc.cooldown.MarkSuccess(candidate.Provider)
+			fc.cooldown.MarkSuccess(key)
 			result.Response = resp
 			result.Provider = candidate.Provider
 			result.Model = candidate.Model
@@ -148,15 +169,15 @@ func (fc *FallbackChain) Execute(
 		failErr := ClassifyError(err, candidate.Provider, candidate.Model)
 
 		if failErr == nil {
-			// Unclassifiable error: do not fallback, return immediately.
-			result.Attempts = append(result.Attempts, FallbackAttempt{
+			// Unclassifiable error: treat as retriable with "unknown" reason.
+			// This allows fallback to next candidate instead of aborting.
+			// Examples: connection reset, DNS failures, unexpected API responses.
+			failErr = &FailoverError{
+				Reason:   FailoverUnknown,
 				Provider: candidate.Provider,
 				Model:    candidate.Model,
-				Error:    err,
-				Duration: elapsed,
-			})
-			return nil, fmt.Errorf("fallback: unclassified error from %s/%s: %w",
-				candidate.Provider, candidate.Model, err)
+				Wrapped:  err,
+			}
 		}
 
 		// Non-retriable error: abort immediately.
@@ -172,7 +193,7 @@ func (fc *FallbackChain) Execute(
 		}
 
 		// Retriable error: mark failure and continue to next candidate.
-		fc.cooldown.MarkFailure(candidate.Provider, failErr.Reason)
+		fc.cooldown.MarkFailure(key, failErr.Reason)
 		result.Attempts = append(result.Attempts, FallbackAttempt{
 			Provider: candidate.Provider,
 			Model:    candidate.Model,
@@ -277,7 +298,11 @@ func (e *FallbackExhaustedError) Error() string {
 	sb.WriteString(fmt.Sprintf("fallback: all %d candidates failed:", len(e.Attempts)))
 	for i, a := range e.Attempts {
 		if a.Skipped {
-			sb.WriteString(fmt.Sprintf("\n  [%d] %s/%s: skipped (cooldown)", i+1, a.Provider, a.Model))
+			if a.Error != nil {
+				sb.WriteString(fmt.Sprintf("\n  [%d] %s/%s: %v", i+1, a.Provider, a.Model, a.Error))
+			} else {
+				sb.WriteString(fmt.Sprintf("\n  [%d] %s/%s: skipped (cooldown)", i+1, a.Provider, a.Model))
+			}
 		} else {
 			sb.WriteString(fmt.Sprintf("\n  [%d] %s/%s: %v (reason=%s, %s)",
 				i+1, a.Provider, a.Model, a.Error, a.Reason, a.Duration.Round(time.Millisecond)))

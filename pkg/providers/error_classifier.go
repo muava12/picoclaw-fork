@@ -78,6 +78,7 @@ var (
 		substr("invalid request format"),
 	}
 
+
 	imageDimensionPatterns = []errorPattern{
 		rxp(`image dimensions exceed max`),
 	}
@@ -128,7 +129,8 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 		}
 	}
 
-	// Try HTTP status code extraction first.
+
+	// Try HTTP status code extraction.
 	if status := extractHTTPStatus(msg); status > 0 {
 		if reason := classifyByStatus(status); reason != "" {
 			return &FailoverError{
@@ -155,8 +157,13 @@ func ClassifyError(err error, provider, model string) *FailoverError {
 }
 
 // classifyByStatus maps HTTP status codes to FailoverReason.
+// NOTE: 400 maps to FailoverModelInvalid (retriable) — not FailoverFormat.
+// This ensures all 400 errors show a warning and fallback to the next model.
+// Specific 400 patterns (like model-invalid) are caught earlier by message matching.
 func classifyByStatus(status int) FailoverReason {
 	switch {
+	case status == 400:
+		return FailoverModelInvalid
 	case status == 401 || status == 403:
 		return FailoverAuth
 	case status == 402:
@@ -165,8 +172,6 @@ func classifyByStatus(status int) FailoverReason {
 		return FailoverTimeout
 	case status == 429:
 		return FailoverRateLimit
-	case status == 400:
-		return FailoverFormat
 	case transientStatusCodes[status]:
 		return FailoverTimeout
 	}

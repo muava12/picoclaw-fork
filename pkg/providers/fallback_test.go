@@ -158,7 +158,7 @@ func TestFallback_CooldownSkip(t *testing.T) {
 	fc := NewFallbackChain(ct)
 
 	// Put openai in cooldown
-	ct.MarkFailure("openai", FailoverRateLimit)
+	ct.MarkFailure("openai/gpt-4", FailoverRateLimit)
 
 	candidates := []FallbackCandidate{
 		makeCandidate("openai", "gpt-4"),
@@ -196,8 +196,8 @@ func TestFallback_AllInCooldown(t *testing.T) {
 	fc := NewFallbackChain(ct)
 
 	// Put all providers in cooldown
-	ct.MarkFailure("openai", FailoverRateLimit)
-	ct.MarkFailure("anthropic", FailoverBilling)
+	ct.MarkFailure("openai/gpt-4", FailoverRateLimit)
+	ct.MarkFailure("anthropic/claude", FailoverBilling)
 
 	candidates := []FallbackCandidate{
 		makeCandidate("openai", "gpt-4"),
@@ -253,18 +253,56 @@ func TestFallback_UnclassifiedError(t *testing.T) {
 		makeCandidate("anthropic", "claude"),
 	}
 
-	attempt := 0
 	run := func(ctx context.Context, provider, model string) (*LLMResponse, error) {
-		attempt++
 		return nil, errors.New("completely unknown internal error")
 	}
 
 	_, err := fc.Execute(context.Background(), candidates, run)
 	if err == nil {
-		t.Fatal("expected error for unclassified error")
+		t.Fatal("expected error when all candidates fail with unclassified error")
 	}
-	if attempt != 1 {
-		t.Errorf("attempt = %d, want 1 (should not fallback on unclassified)", attempt)
+	// Unclassified errors should now be treated as retriable (FailoverUnknown),
+	// so both candidates should be tried before exhaustion.
+	var exhausted *FallbackExhaustedError
+	if !errors.As(err, &exhausted) {
+		t.Fatalf("expected FallbackExhaustedError, got %T: %v", err, err)
+	}
+	if len(exhausted.Attempts) != 2 {
+		t.Errorf("attempts = %d, want 2 (both candidates should be tried)", len(exhausted.Attempts))
+	}
+}
+
+func TestFallback_UnclassifiedError_FallbackSucceeds(t *testing.T) {
+	ct := NewCooldownTracker()
+	fc := NewFallbackChain(ct)
+
+	candidates := []FallbackCandidate{
+		makeCandidate("sumo", "seed-mini"),
+		makeCandidate("groq", "llama-3"),
+	}
+
+	attempt := 0
+	run := func(ctx context.Context, provider, model string) (*LLMResponse, error) {
+		attempt++
+		if attempt == 1 {
+			// Simulate unclassified error (e.g. connection reset)
+			return nil, errors.New("read tcp: connection reset by peer")
+		}
+		return &LLMResponse{Content: "fallback response", FinishReason: "stop"}, nil
+	}
+
+	result, err := fc.Execute(context.Background(), candidates, run)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Provider != "groq" {
+		t.Errorf("provider = %q, want groq (fallback)", result.Provider)
+	}
+	if result.Response.Content != "fallback response" {
+		t.Errorf("content = %q, want 'fallback response'", result.Response.Content)
+	}
+	if len(result.Attempts) != 1 {
+		t.Errorf("attempts = %d, want 1 (failed first candidate recorded)", len(result.Attempts))
 	}
 }
 
@@ -278,7 +316,7 @@ func TestFallback_SuccessResetsCooldown(t *testing.T) {
 	run := func(ctx context.Context, provider, model string) (*LLMResponse, error) {
 		attempt++
 		if attempt == 1 {
-			ct.MarkFailure("openai", FailoverRateLimit) // simulate failure tracked elsewhere
+			ct.MarkFailure("openai/gpt-4", FailoverRateLimit) // simulate failure tracked elsewhere
 		}
 		return &LLMResponse{Content: "ok", FinishReason: "stop"}, nil
 	}
@@ -287,7 +325,7 @@ func TestFallback_SuccessResetsCooldown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if !ct.IsAvailable("openai") {
+	if !ct.IsAvailable("openai/gpt-4") {
 		t.Error("success should reset cooldown")
 	}
 }

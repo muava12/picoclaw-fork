@@ -41,7 +41,7 @@ func TestClassifyError_StatusCodes(t *testing.T) {
 		{402, FailoverBilling},
 		{408, FailoverTimeout},
 		{429, FailoverRateLimit},
-		{400, FailoverFormat},
+		{400, FailoverModelInvalid},
 		{500, FailoverTimeout},
 		{502, FailoverTimeout},
 		{503, FailoverTimeout},
@@ -207,6 +207,33 @@ func TestClassifyError_FormatPatterns(t *testing.T) {
 	}
 }
 
+func TestClassifyError_Status400_ModelInvalid(t *testing.T) {
+	// All 400 errors should be classified as FailoverModelInvalid (retriable + warning).
+	// The actual error message is shown in the warning to the user.
+	tests := []string{
+		"API request failed:\n  Status: 400\n  Body: nemotron-3-nano-30b-a3b:free is not a valid model ID",
+		"API request failed:\n  Status: 400\n  Body: unknown error from provider",
+		"API request failed:\n  Status: 400\n  Body: model not found",
+	}
+
+	for _, msg := range tests {
+		err := errors.New(msg)
+		result := ClassifyError(err, "nvidia", "test-model")
+		if result == nil {
+			t.Fatalf("pattern %q: expected non-nil", msg)
+		}
+		if result.Reason != FailoverModelInvalid {
+			t.Errorf("pattern %q: reason = %q, want model_invalid", msg, result.Reason)
+		}
+		if !result.IsRetriable() {
+			t.Errorf("pattern %q: should be retriable to allow fallback", msg)
+		}
+		if !result.IsModelInvalid() {
+			t.Errorf("pattern %q: should be classified as model invalid", msg)
+		}
+	}
+}
+
 func TestClassifyError_ImageDimensionError(t *testing.T) {
 	err := errors.New("image dimensions exceed max allowed 2048x2048")
 	result := ClassifyError(err, "openai", "gpt-4o")
@@ -264,6 +291,7 @@ func TestFailoverError_IsRetriable(t *testing.T) {
 		{FailoverBilling, true},
 		{FailoverTimeout, true},
 		{FailoverOverloaded, true},
+		{FailoverModelInvalid, true},
 		{FailoverFormat, false},
 		{FailoverUnknown, true},
 	}

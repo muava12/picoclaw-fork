@@ -167,7 +167,12 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 
 			response, err := al.processMessage(ctx, msg)
 			if err != nil {
-				response = fmt.Sprintf("Error processing message: %v", err)
+				// Error already sent to user channel by runAgentLoop, just log here
+				logger.ErrorCF("agent", "Message processing failed", map[string]any{
+					"error":   err.Error(),
+					"channel": msg.Channel,
+					"chat_id": msg.ChatID,
+				})
 			}
 
 			if response != "" {
@@ -426,6 +431,14 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 	// 4. Run LLM iteration loop
 	finalContent, iteration, err := al.runLLMIteration(ctx, agent, messages, opts)
 	if err != nil {
+		// Show the error to user via channel before returning
+		if !constants.IsInternalChannel(opts.Channel) {
+			al.bus.PublishOutbound(bus.OutboundMessage{
+				Channel: opts.Channel,
+				ChatID:  opts.ChatID,
+				Content: fmt.Sprintf("⚠️ Error processing message: %s", err.Error()),
+			})
+		}
 		return "", err
 	}
 
@@ -520,7 +533,21 @@ func (al *AgentLoop) runLLMIteration(
 			if len(agent.Candidates) > 1 && al.fallback != nil {
 				fbResult, fbErr := al.fallback.Execute(ctx, agent.Candidates,
 					func(ctx context.Context, provider, model string) (*providers.LLMResponse, error) {
-						return agent.Provider.Chat(ctx, messages, providerToolDefs, model, map[string]any{
+						candProvider := agent.Provider
+						candModelID := model
+
+						// Attempt to dynamically route to the correct provider defined in model_list
+						if modelCfg, err := al.cfg.GetModelConfig(model); err == nil {
+							if modelCfg.Workspace == "" {
+								modelCfg.Workspace = al.cfg.WorkspacePath()
+							}
+							if p, mID, err := providers.CreateProviderFromConfig(modelCfg); err == nil {
+								candProvider = p
+								candModelID = mID
+							}
+						}
+
+						return candProvider.Chat(ctx, messages, providerToolDefs, candModelID, map[string]any{
 							"max_tokens":       agent.MaxTokens,
 							"temperature":      agent.Temperature,
 							"prompt_cache_key": agent.ID,
@@ -534,6 +561,22 @@ func (al *AgentLoop) runLLMIteration(
 					logger.InfoCF("agent", fmt.Sprintf("Fallback: succeeded with %s/%s after %d attempts",
 						fbResult.Provider, fbResult.Model, len(fbResult.Attempts)+1),
 						map[string]any{"agent_id": agent.ID, "iteration": iteration})
+
+					// Send warning for model-invalid errors so user knows to fix config
+					if !constants.IsInternalChannel(opts.Channel) {
+						for _, attempt := range fbResult.Attempts {
+							if failErr, ok := attempt.Error.(*providers.FailoverError); ok && failErr.IsModelInvalid() {
+								al.bus.PublishOutbound(bus.OutboundMessage{
+									Channel: opts.Channel,
+									ChatID:  opts.ChatID,
+									Content: fmt.Sprintf("⚠️ Model %s/%s is invalid or unavailable: %v\nUsing fallback: %s/%s",
+										attempt.Provider, attempt.Model, failErr.Wrapped,
+										fbResult.Provider, fbResult.Model),
+								})
+								break // Only send one warning even if multiple model-invalid errors
+							}
+						}
+					}
 				}
 				return fbResult.Response, nil
 			}
