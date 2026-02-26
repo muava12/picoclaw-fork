@@ -29,8 +29,10 @@ print_warn() {
 
 get_latest_version() {
     local repo="$1"
-    curl -sI "https://github.com/${repo}/releases/latest" 2>/dev/null | \
-        grep -i "location:" | sed 's|.*/tag/||' | tr -d '\r\n'
+    # Mengambil daftar rilis dari API, mencari tag_name yang TIDAK mengandung "piman", 
+    # mengambil yang pertama, lalu mengekstrak versinya.
+    curl -s "https://api.github.com/repos/${repo}/releases" | \
+        grep '"tag_name":' | grep -v 'piman' | head -n 1 | sed -E 's/.*"tag_name": "([^"]+)".*/\1/'
 }
 
 # Detect system architecture
