@@ -2,6 +2,7 @@ package cron
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -14,6 +15,8 @@ func newAddCommand(storePath func() string) *cobra.Command {
 		message string
 		every   int64
 		cronExp string
+		at      int64
+		command string
 		deliver bool
 		channel string
 		to      string
@@ -24,12 +27,15 @@ func newAddCommand(storePath func() string) *cobra.Command {
 		Short: "Add a new scheduled job",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if every <= 0 && cronExp == "" {
-				return fmt.Errorf("either --every or --cron must be specified")
+			if every <= 0 && cronExp == "" && at <= 0 {
+				return fmt.Errorf("one of --every, --cron, or --at must be specified")
 			}
 
 			var schedule cron.CronSchedule
-			if every > 0 {
+			if at > 0 {
+				atMS := time.Now().UnixMilli() + (at * 1000)
+				schedule = cron.CronSchedule{Kind: "at", AtMS: &atMS}
+			} else if every > 0 {
 				everyMS := every * 1000
 				schedule = cron.CronSchedule{Kind: "every", EveryMS: &everyMS}
 			} else {
@@ -42,6 +48,13 @@ func newAddCommand(storePath func() string) *cobra.Command {
 				return fmt.Errorf("error adding job: %w", err)
 			}
 
+			if command != "" {
+				job.Payload.Command = command
+				if err := cs.UpdateJob(job); err != nil {
+					return fmt.Errorf("error updating job with command payload: %w", err)
+				}
+			}
+
 			fmt.Printf("✓ Added job '%s' (%s)\n", job.Name, job.ID)
 
 			return nil
@@ -52,13 +65,15 @@ func newAddCommand(storePath func() string) *cobra.Command {
 	cmd.Flags().StringVarP(&message, "message", "m", "", "Message for agent")
 	cmd.Flags().Int64VarP(&every, "every", "e", 0, "Run every N seconds")
 	cmd.Flags().StringVarP(&cronExp, "cron", "c", "", "Cron expression (e.g. '0 9 * * *')")
+	cmd.Flags().Int64VarP(&at, "at", "a", 0, "Run once in N seconds")
+	cmd.Flags().StringVarP(&command, "command", "x", "", "Shell command to execute directly")
 	cmd.Flags().BoolVarP(&deliver, "deliver", "d", false, "Deliver response to channel")
 	cmd.Flags().StringVar(&to, "to", "", "Recipient for delivery")
 	cmd.Flags().StringVar(&channel, "channel", "", "Channel for delivery")
 
 	_ = cmd.MarkFlagRequired("name")
 	_ = cmd.MarkFlagRequired("message")
-	cmd.MarkFlagsMutuallyExclusive("every", "cron")
+	cmd.MarkFlagsMutuallyExclusive("every", "cron", "at")
 
 	return cmd
 }
