@@ -513,7 +513,7 @@ func (al *AgentLoop) runAgentLoop(ctx context.Context, agent *AgentInstance, opt
 	if err != nil {
 		// Show the error to user via channel before returning
 		if !constants.IsInternalChannel(opts.Channel) {
-			al.bus.PublishOutbound(bus.OutboundMessage{
+			al.bus.PublishOutbound(ctx, bus.OutboundMessage{
 				Channel: opts.Channel,
 				ChatID:  opts.ChatID,
 				Content: fmt.Sprintf("⚠️ Error processing message: %s", err.Error()),
@@ -674,7 +674,7 @@ func (al *AgentLoop) runLLMIteration(
 					if !constants.IsInternalChannel(opts.Channel) {
 						for _, attempt := range fbResult.Attempts {
 							if failErr, ok := attempt.Error.(*providers.FailoverError); ok && failErr.IsModelInvalid() {
-								al.bus.PublishOutbound(bus.OutboundMessage{
+								al.bus.PublishOutbound(ctx, bus.OutboundMessage{
 									Channel: opts.Channel,
 									ChatID:  opts.ChatID,
 									Content: fmt.Sprintf("⚠️ Model %s/%s is invalid or unavailable: %v\nUsing fallback: %s/%s",

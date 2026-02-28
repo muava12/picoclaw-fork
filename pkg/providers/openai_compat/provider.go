@@ -312,22 +312,25 @@ func stripSystemParts(messages []Message) []openaiMessage {
 }
 
 func normalizeModel(model, apiBase string) string {
-	idx := strings.Index(model, "/")
-	if idx == -1 {
-		return model
-	}
-
 	if strings.Contains(strings.ToLower(apiBase), "openrouter.ai") {
 		return model
 	}
 
-	prefix := strings.ToLower(model[:idx])
-	switch prefix {
-	case "moonshot", "nvidia", "ollama", "deepseek", "google", "openrouter", "zhipu", "mistral":
-		return model[idx+1:]
-	default:
-		return model
+	for {
+		idx := strings.Index(model, "/")
+		if idx == -1 {
+			break
+		}
+
+		prefix := strings.ToLower(model[:idx])
+		switch prefix {
+		case "moonshot", "nvidia", "ollama", "deepseek", "google", "openrouter", "zhipu", "mistral", "groq":
+			model = model[idx+1:]
+		default:
+			return model
+		}
 	}
+	return model
 }
 
 func asInt(v any) (int, bool) {

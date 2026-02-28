@@ -407,7 +407,7 @@ func startServer(args Config) {
 	addr := fmt.Sprintf("%s:%d", args.Host, args.Port)
 	fmt.Println("\n  ┌─────────────────────────────────────────┐")
 	fmt.Println("  │       🦀 PicoClaw Manager (Go)          │")
-	fmt.Println("  └─────────────────────────────────────────┘\n")
+	fmt.Println("  └─────────────────────────────────────────┘")
 	fmt.Printf("  Listening   → http://%s\n", addr)
 	fmt.Printf("  Binary      → %s\n", args.PicoclawBin)
 	fmt.Println("\n  Endpoints:")
@@ -416,7 +416,7 @@ func startServer(args Config) {
 	fmt.Println("    POST /api/picoclaw/start        → Start gateway")
 	fmt.Println("    POST /api/picoclaw/stop         → Stop gateway")
 	fmt.Println("    POST /api/picoclaw/restart      → Restart gateway")
-	fmt.Println("    POST /api/picoclaw/update       → Update firmware\n")
+	fmt.Println("    POST /api/picoclaw/update       → Update firmware")
 
 	log.Fatal(http.ListenAndServe(addr, mux))
 }
