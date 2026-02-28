@@ -3,7 +3,6 @@
 #  PicoClaw Manager — Interactive Installer
 #  Optimized for Armbian / Debian / Ubuntu
 # ═══════════════════════════════════════════════════
-set -e
 
 # Resolve current user even if run with sudo
 REAL_USER=${SUDO_USER:-$(whoami)}
@@ -21,7 +20,7 @@ Y='\033[1;33m' C='\033[0;36m' W='\033[1;37m' X='\033[0m'
 BOLD='\033[1m'
 
 banner() {
-  clear
+  [ -t 1 ] && clear || true
   echo -e "  ${C}┌──────────────────────────────────────┐${X}"
   echo -e "  ${C}│${W}${BOLD}   🦀 PicoClaw Service Manager       ${X}${C}│${X}"
   echo -e "  ${C}│${X}      Interactive Controller          ${C}│${X}"
@@ -33,16 +32,32 @@ info()    { echo -e "  ${B}▸${X} $1"; }
 success() { echo -e "  ${G}✓${X} $1"; }
 warn()    { echo -e "  ${Y}⚠${X} $1"; }
 err()     { echo -e "  ${R}✗${X} $1"; }
-ask()     {
+
+read_tty() {
+    if [ -t 0 ]; then
+        read "$@"
+    elif [ -c /dev/tty ]; then
+        read "$@" < /dev/tty
+    else
+        return 1
+    fi
+}
+
+ask() {
     local prompt=$1
     local default=$2
     local var_name=$3
     echo -ne "  ${W}?${X} ${prompt} [${Y}${default}${X}]: "
-    read -r value < /dev/tty
-    if [ -z "$value" ]; then
-        eval "$var_name=\"$default\""
+    local value=""
+    if read_tty -r value; then
+        if [ -z "$value" ]; then
+            eval "$var_name=\"$default\""
+        else
+            eval "$var_name=\"$value\""
+        fi
     else
-        eval "$var_name=\"$value\""
+        eval "$var_name=\"$default\""
+        echo -e "${Y}(automatic)${X}"
     fi
 }
 
@@ -74,30 +89,32 @@ cmd_install() {
   echo ""
   info "Konfigurasi diproses. Menyiapkan sistem..."
 
+  set -e
   # Detect architecture
-  ARCH=$(uname -m)
-  case "$ARCH" in
-      x86_64|amd64)  ARCH="amd64" ;;
-      aarch64|arm64) ARCH="arm64" ;;
+  local arch_raw=$(uname -m)
+  local arch_final=""
+  case "$arch_raw" in
+      x86_64|amd64)  arch_final="amd64" ;;
+      aarch64|arm64) arch_final="arm64" ;;
       *)
-          err "Arsitektur tidak didukung: $ARCH"
-          exit 1
+          err "Arsitektur tidak didukung: $arch_raw"
+          set +e; return 1
           ;;
   esac
 
-  VERSION=$(get_latest_manager_version)
-  if [ -z "$VERSION" ]; then
+  local version=$(get_latest_manager_version)
+  if [ -z "$version" ]; then
       err "Gagal mendapatkan versi terbaru dari GitHub."
-      exit 1
+      set +e; return 1
   fi
 
-  DL_URL="https://github.com/${REPO}/releases/download/piman-${VERSION}/picoclaw-manager-linux-${ARCH}"
+  local dl_url="https://github.com/${REPO}/releases/download/piman-${version}/picoclaw-manager-linux-${arch_final}"
 
-  info "Mendownload ${BINARY_NAME} ${VERSION}..."
+  info "Mendownload ${BINARY_NAME} ${version}..."
   sudo mkdir -p "$INSTALL_DIR"
-  sudo curl -fsSL -L -o "${INSTALL_DIR}/${BINARY_NAME}" "$DL_URL" || {
+  sudo curl -fsSL -L -o "${INSTALL_DIR}/${BINARY_NAME}" "$dl_url" || {
       err "Gagal mendownload binary."
-      exit 1
+      set +e; return 1
   }
   sudo chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
   
@@ -131,13 +148,14 @@ UNIT
   sudo systemctl enable "$SERVICE_NAME"
   sudo systemctl restart "$SERVICE_NAME"
   success "Service ${SERVICE_NAME} berhasil dijalankan!"
+  set +e
 
   echo ""
   echo -e "  ${G}${BOLD}Instalasi Selesai!${X}"
   echo -e "  Jalankan '${W}piman status${X}' untuk mengecek kesehatan sistem."
   echo ""
   echo -ne "  Tekan [Enter] untuk kembali ke menu..."
-  read -r < /dev/tty
+  read_tty -r
 }
 
 # ── Update ────────────────────────────────────────
@@ -149,20 +167,23 @@ cmd_update() {
   INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
   BINARY_NAME="${BINARY_NAME:-$DEFAULT_BINARY_NAME}"
 
-  VERSION=$(get_latest_manager_version)
-  ARCH=$(uname -m)
-  case "$ARCH" in
-      x86_64|amd64)  ARCH="amd64" ;;
-      aarch64|arm64) ARCH="arm64" ;;
+  set -e
+  local version=$(get_latest_manager_version)
+  local arch_raw=$(uname -m)
+  local arch_final=""
+  case "$arch_raw" in
+      x86_64|amd64)  arch_final="amd64" ;;
+      aarch64|arm64) arch_final="arm64" ;;
   esac
 
-  DL_URL="https://github.com/${REPO}/releases/download/piman-${VERSION}/picoclaw-manager-linux-${ARCH}"
+  local dl_url="https://github.com/${REPO}/releases/download/piman-${version}/picoclaw-manager-linux-${arch_final}"
   
-  info "Mengunduh versi ${VERSION}..."
-  sudo curl -fsSL -L -o "${INSTALL_DIR}/${BINARY_NAME}" "$DL_URL"
+  info "Mengunduh versi ${version}..."
+  sudo curl -fsSL -L -o "${INSTALL_DIR}/${BINARY_NAME}" "$dl_url"
   sudo systemctl restart "$SERVICE_NAME"
+  set +e
   
-  success "Update ke versi ${VERSION} berhasil!"
+  success "Update ke versi ${version} berhasil!"
   sleep 2
 }
 
@@ -185,16 +206,20 @@ cmd_status() {
   fi
   echo ""
   echo -ne "  Tekan [Enter] untuk kembali..."
-  read -r < /dev/tty
+  read_tty -r
 }
 
 cmd_uninstall() {
   banner
   warn "${BOLD}PERINGATAN: Ini akan menghapus service dan binary!${X}"
   echo -ne "  Lanjutkan? [y/N] "
-  read -r -n 1 -r < /dev/tty
-  echo ""
-  if [[ ! $REPLY =~ ^[Yy]$ ]]; then return; fi
+  local reply=""
+  if read_tty -n 1 -r reply; then
+    echo ""
+    if [[ ! $reply =~ ^[Yy]$ ]]; then return; fi
+  else
+    return 1
+  fi
 
   sudo systemctl stop "$SERVICE_NAME" || true
   sudo systemctl disable "$SERVICE_NAME" || true
@@ -204,11 +229,12 @@ cmd_uninstall() {
   
   success "Service dibersihkan."
   echo -ne "  Hapus folder ${DEFAULT_INSTALL_DIR}? [y/N] "
-  read -r -n 1 -r < /dev/tty
-  echo ""
-  if [[ $REPLY =~ ^[Yy]$ ]]; then
-    sudo rm -rf "$DEFAULT_INSTALL_DIR"
-    success "File fisik dihapus."
+  if read_tty -n 1 -r reply; then
+    echo ""
+    if [[ $reply =~ ^[Yy]$ ]]; then
+      sudo rm -rf "$DEFAULT_INSTALL_DIR"
+      success "File fisik dihapus."
+    fi
   fi
   sleep 1
 }
@@ -228,7 +254,10 @@ cmd_menu() {
     echo -e "  ${W}0)${X} Exit"
     echo ""
     echo -ne "  ${BOLD}Pilihan: ${X}"
-    read -r opt < /dev/tty
+    local opt=""
+    if ! read_tty -r opt; then
+        exit 0
+    fi
     
     case $opt in
       1) cmd_install ;;
@@ -237,7 +266,7 @@ cmd_menu() {
       4) cmd_restart ;;
       5) banner; journalctl -u "$SERVICE_NAME" -f ;;
       6) cmd_uninstall ;;
-      0) clear; exit 0 ;;
+      0) banner; exit 0 ;;
       *) warn "Pilihan tidak valid."; sleep 1 ;;
     esac
   done

@@ -3,7 +3,6 @@
 #  PicoClaw Gateway — Interactive Installer
 #  Optimized for STB / Armbian / Linux
 # ═══════════════════════════════════════════════════
-set -e
 
 # Default configurations
 DEFAULT_INSTALL_DIR="$HOME/.local/bin"
@@ -16,7 +15,8 @@ Y='\033[1;33m' C='\033[0;36m' W='\033[1;37m' X='\033[0m'
 BOLD='\033[1m'
 
 banner() {
-  clear
+  # Clear only if it's a real terminal to avoid exit on error or mess in logs
+  [ -t 1 ] && clear || true
   echo -e "  ${C}┌──────────────────────────────────────┐${X}"
   echo -e "  ${C}│${W}${BOLD}   🦀 PicoClaw Gateway Installer     ${X}${C}│${X}"
   echo -e "  ${C}│${X}      Core Binary Controller          ${C}│${X}"
@@ -28,16 +28,35 @@ info()    { echo -e "  ${B}▸${X} $1"; }
 success() { echo -e "  ${G}✓${X} $1"; }
 warn()    { echo -e "  ${Y}⚠${X} $1"; }
 err()     { echo -e "  ${R}✗${X} $1"; }
-ask()     {
+
+# Robust interactive read that works even when script is piped via curl
+read_tty() {
+    if [ -t 0 ]; then
+        read "$@"
+    elif [ -c /dev/tty ]; then
+        read "$@" < /dev/tty
+    else
+        # If no TTY, we might be in a non-interactive environment
+        return 1
+    fi
+}
+
+ask() {
     local prompt=$1
     local default=$2
     local var_name=$3
     echo -ne "  ${W}?${X} ${prompt} [${Y}${default}${X}]: "
-    read -r value < /dev/tty
-    if [ -z "$value" ]; then
-        eval "$var_name=\"$default\""
+    local value=""
+    if read_tty -r value; then
+        if [ -z "$value" ]; then
+            eval "$var_name=\"$default\""
+        else
+            eval "$var_name=\"$value\""
+        fi
     else
-        eval "$var_name=\"$value\""
+        # Fallback to default if read fails (non-interactive)
+        eval "$var_name=\"$default\""
+        echo -e "${Y}(automatic)${X}"
     fi
 }
 
@@ -99,8 +118,9 @@ cmd_status() {
         info "Manager Service: ${Y}Inactive/Not Installed${X}"
     fi
 
+    echo ""
     echo -ne "  Tekan [Enter] untuk kembali..."
-    read -r < /dev/tty
+    read_tty -r
 }
 
 cmd_install() {
@@ -124,7 +144,7 @@ cmd_install() {
     ask "Arsitektur" "$det_arch" "ARCH"
     if [ "$ARCH" == "unknown" ]; then
         err "Arsitektur tidak dikenali secara otomatis. Harap masukkan manual (x86_64, arm64, armv7)."
-        exit 1
+        return 1
     fi
 
     echo ""
@@ -137,12 +157,13 @@ cmd_install() {
         url="https://github.com/${REPO}/releases/latest/download/picoclaw_Linux_${ARCH}.tar.gz"
     fi
 
-    # Execution
+    # Execution - from here on, we want to stop on any failure
+    set -e
     mkdir -p "$INSTALL_DIR"
     info "Mengunduh tarball..."
     
     cd /tmp
-    curl -fsSL -L "$url" -o picoclaw.tar.gz || { err "Gagal mengunduh file."; exit 1; }
+    curl -fsSL -L "$url" -o picoclaw.tar.gz || { err "Gagal mengunduh file."; set +e; return 1; }
     
     info "Mengekstrak..."
     tar -xzf picoclaw.tar.gz "$DEFAULT_BINARY_NAME"
@@ -162,18 +183,22 @@ cmd_install() {
 
     # Optional Manager
     if [ "$REPO" == "$DEFAULT_REPO" ]; then
-        echo -ne "  Pasang PicoClaw Manager (piman) juga? [y/N] "
-        read -n 1 -r < /dev/tty
         echo ""
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            curl -fsSL https://raw.githubusercontent.com/${REPO}/main/setup_picoclaw_manager.sh | bash -s install
+        echo -ne "  Pasang PicoClaw Manager (piman) juga? [y/N] "
+        local reply=""
+        if read_tty -n 1 -r reply; then
+            echo ""
+            if [[ $reply =~ ^[Yy]$ ]]; then
+                curl -fsSL https://raw.githubusercontent.com/${REPO}/main/setup_picoclaw_manager.sh | bash -s install
+            fi
         fi
     fi
+    set +e
 
     echo ""
     success "${BOLD}PicoClaw siap digunakan!${X}"
     echo -ne "  Tekan [Enter] untuk kembali..."
-    read -r < /dev/tty
+    read_tty -r
 }
 
 cmd_uninstall() {
@@ -213,7 +238,11 @@ cmd_menu() {
     echo -e "  ${W}0)${X} Exit"
     echo ""
     echo -ne "  ${BOLD}Pilihan: ${X}"
-    read -r opt < /dev/tty
+    local opt=""
+    if ! read_tty -r opt; then
+        # If read fails in menu loop, exit to prevent infinite loop
+        exit 0
+    fi
     
     case $opt in
       1) cmd_install ;;
@@ -222,7 +251,7 @@ cmd_menu() {
          cmd_install ;;
       4) cmd_onboard ;;
       5) cmd_uninstall ;;
-      0) clear; exit 0 ;;
+      0) banner; exit 0 ;;
       *) warn "Pilihan tidak valid."; sleep 1 ;;
     esac
   done
