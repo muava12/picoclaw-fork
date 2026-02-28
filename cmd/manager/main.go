@@ -20,7 +20,7 @@ import (
 )
 
 var (
-	version            = "0.0.3"
+	version            = "0.0.4"
 	defaultPort        = 8321
 	defaultRepo        = "muava12/picoclaw-fork"
 	defaultPicoClawBin = filepath.Join(getHomeDir(), ".local", "bin", "picoclaw")
@@ -431,26 +431,27 @@ func runCLI(cmd string, args Config) {
 	}
 
 	urlMap := map[string]string{
-		"start":   "/api/picoclaw/start",
-		"stop":    "/api/picoclaw/stop",
-		"restart": "/api/picoclaw/restart",
-		"update":  "/api/picoclaw/update",
-		"status":  "/api/picoclaw/status",
-		"check":   "/api/picoclaw/check-update",
+		"start":        "/api/picoclaw/start",
+		"stop":         "/api/picoclaw/stop",
+		"restart":      "/api/picoclaw/restart",
+		"update":       "/api/picoclaw/update",
+		"status":       "/api/picoclaw/status",
+		"stats":        "/api/picoclaw/status",
+		"check":        "/api/picoclaw/check-update",
 		"check-update": "/api/picoclaw/check-update",
-		"logs":    "/api/picoclaw/status", // Special handling
+		"logs":         "/api/picoclaw/status", // Special handling
 	}
 
 	endpoint, ok := urlMap[cmd]
 	if !ok {
 		fmt.Printf("Error: Perintah tidak dikenali: %s\n", cmd)
-		fmt.Println("Commands: start | stop | restart | status | logs | check | update | version")
+		fmt.Println("Commands: start | stop | restart | status | stats | logs | check | update | version")
 		os.Exit(1)
 	}
 
 	apiURL := fmt.Sprintf("http://127.0.0.1:%d%s", args.Port, endpoint)
 	method := "POST"
-	if cmd == "status" || cmd == "logs" || cmd == "check" || cmd == "check-update" {
+	if cmd == "status" || cmd == "stats" || cmd == "logs" || cmd == "check" || cmd == "check-update" {
 		method = "GET"
 	}
 
