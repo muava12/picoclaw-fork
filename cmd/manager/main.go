@@ -20,7 +20,7 @@ import (
 )
 
 var (
-	version            = "0.0.1"
+	version            = "0.0.3"
 	defaultPort        = 8321
 	defaultRepo        = "muava12/picoclaw-fork"
 	defaultPicoClawBin = filepath.Join(getHomeDir(), ".local", "bin", "picoclaw")
@@ -413,6 +413,7 @@ func startServer(args Config) {
 	fmt.Println("\n  Endpoints:")
 	fmt.Println("    GET  /api/health               → Health check")
 	fmt.Println("    GET  /api/picoclaw/status       → Status PicoClaw")
+	fmt.Println("    GET  /api/picoclaw/check-update → Check for updates")
 	fmt.Println("    POST /api/picoclaw/start        → Start gateway")
 	fmt.Println("    POST /api/picoclaw/stop         → Stop gateway")
 	fmt.Println("    POST /api/picoclaw/restart      → Restart gateway")
@@ -435,19 +436,21 @@ func runCLI(cmd string, args Config) {
 		"restart": "/api/picoclaw/restart",
 		"update":  "/api/picoclaw/update",
 		"status":  "/api/picoclaw/status",
+		"check":   "/api/picoclaw/check-update",
+		"check-update": "/api/picoclaw/check-update",
 		"logs":    "/api/picoclaw/status", // Special handling
 	}
 
 	endpoint, ok := urlMap[cmd]
 	if !ok {
 		fmt.Printf("Error: Perintah tidak dikenali: %s\n", cmd)
-		fmt.Println("Commands: start | stop | restart | status | logs | update | version")
+		fmt.Println("Commands: start | stop | restart | status | logs | check | update | version")
 		os.Exit(1)
 	}
 
 	apiURL := fmt.Sprintf("http://127.0.0.1:%d%s", args.Port, endpoint)
 	method := "POST"
-	if cmd == "status" || cmd == "logs" {
+	if cmd == "status" || cmd == "logs" || cmd == "check" || cmd == "check-update" {
 		method = "GET"
 	}
 
@@ -476,6 +479,34 @@ func runCLI(cmd string, args Config) {
 			for _, logLine := range data.RecentLogs {
 				fmt.Println(logLine)
 			}
+		}
+		return
+	}
+
+	if cmd == "check" || cmd == "check-update" {
+		var data struct {
+			InstalledV  string `json:"installed_version"`
+			LatestV     string `json:"latest_version"`
+			UpdateAvail bool   `json:"update_available"`
+			ReleaseURL  string `json:"release_url"`
+			Error       string `json:"error"`
+		}
+		if err := json.Unmarshal(body, &data); err == nil {
+			fmt.Printf("PicoClaw Update Check:\n")
+			fmt.Printf("  Installed: %s\n", data.InstalledV)
+			if data.Error != "" {
+				fmt.Printf("  Error:     %s\n", data.Error)
+			} else {
+				fmt.Printf("  Latest:    %s\n", data.LatestV)
+				if data.UpdateAvail {
+					fmt.Printf("  Status:    🔥 Update available!\n")
+					fmt.Printf("  Release:   %s\n", data.ReleaseURL)
+				} else {
+					fmt.Printf("  Status:    ✅ Up to date\n")
+				}
+			}
+		} else {
+			fmt.Println(string(body))
 		}
 		return
 	}
