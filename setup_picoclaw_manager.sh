@@ -63,7 +63,7 @@ ask() {
 
 get_latest_manager_version() {
     curl -s "https://api.github.com/repos/${REPO}/releases" | \
-        grep -oP '"tag_name":\s*"piman-\K[^"]+' | head -n 1
+        grep '"tag_name":' | grep -Eo 'piman-[^"]+' | head -n 1
 }
 
 # ── Install ───────────────────────────────────────
@@ -108,7 +108,7 @@ cmd_install() {
       set +e; return 1
   fi
 
-  local dl_url="https://github.com/${REPO}/releases/download/piman-${version}/picoclaw-manager-linux-${arch_final}"
+  local dl_url="https://github.com/${REPO}/releases/download/${version}/picoclaw-manager-linux-${arch_final}"
 
   info "Mendownload ${BINARY_NAME} ${version}..."
   sudo mkdir -p "$INSTALL_DIR"
