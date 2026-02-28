@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 	"sync/atomic"
 
 	"github.com/caarlos0/env/v11"
@@ -729,12 +730,35 @@ func (c *Config) GetModelConfig(modelName string) (*ModelConfig, error) {
 	return &matches[idx], nil
 }
 
-// findMatches finds all ModelConfig entries with the given model_name.
-func (c *Config) findMatches(modelName string) []ModelConfig {
+// findMatches finds all ModelConfig entries matching the given identifier.
+// It checks the model_name alias, the exact raw model string, and the model string stripped of its protocol prefix.
+func (c *Config) findMatches(identifier string) []ModelConfig {
 	var matches []ModelConfig
 	for i := range c.ModelList {
-		if c.ModelList[i].ModelName == modelName {
-			matches = append(matches, c.ModelList[i])
+		mc := c.ModelList[i]
+		
+		// 1. Match by explicit alias (e.g. "naga1")
+		if mc.ModelName == identifier {
+			matches = append(matches, mc)
+			continue
+		}
+		
+		fullModel := strings.TrimSpace(mc.Model)
+		if fullModel == "" {
+			continue
+		}
+
+		// 2. Match by exact model string (e.g. "openai/gemini-2.5-flash:free")
+		if fullModel == identifier {
+			matches = append(matches, mc)
+			continue
+		}
+
+		// 3. Match by stripped model string (e.g. "gemini-2.5-flash:free")
+		if idx := strings.Index(fullModel, "/"); idx > 0 {
+			if fullModel[idx+1:] == identifier {
+				matches = append(matches, mc)
+			}
 		}
 	}
 	return matches
