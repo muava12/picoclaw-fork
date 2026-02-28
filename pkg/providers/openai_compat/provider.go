@@ -157,10 +157,7 @@ func (p *Provider) Chat(
 	// Prompt caching is only supported by OpenAI-native endpoints.
 	// Gemini and other providers reject unknown fields, so skip for non-OpenAI APIs.
 	if cacheKey, ok := options["prompt_cache_key"].(string); ok && cacheKey != "" {
-		// Only send prompt_cache_key to known backends that support it.
-		// Strict providers like Groq, OpenRouter, and Gemini (OpenAI compat) reject unknown properties.
-		lowerBase := strings.ToLower(p.apiBase)
-		if strings.Contains(lowerBase, "openai.com") || strings.Contains(lowerBase, "chatgpt.com") {
+		if !strings.Contains(p.apiBase, "generativelanguage.googleapis.com") {
 			requestBody["prompt_cache_key"] = cacheKey
 		}
 	}
