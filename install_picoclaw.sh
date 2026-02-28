@@ -1,31 +1,47 @@
 #!/bin/bash
+# ═══════════════════════════════════════════════════
+#  PicoClaw Gateway — Interactive Installer
+#  Optimized for STB / Armbian / Linux
+# ═══════════════════════════════════════════════════
 set -e
 
-INSTALL_DIR="$HOME/.local/bin"
-BINARY_NAME="picoclaw"
+# Default configurations
+DEFAULT_INSTALL_DIR="$HOME/.local/bin"
+DEFAULT_BINARY_NAME="picoclaw"
+DEFAULT_REPO="muava12/picoclaw-fork"
 
-GREEN='\033[0;32m'
-BLUE='\033[0;34m'
-RED='\033[0;31m'
-YELLOW='\033[0;33m'
+# ── Warna & UI ────────────────────────────────────
+R='\033[0;31m' G='\033[0;32m' B='\033[0;34m'
+Y='\033[1;33m' C='\033[0;36m' W='\033[1;37m' X='\033[0m'
 BOLD='\033[1m'
-RESET='\033[0m'
 
-print_step() {
-    echo -e "${BLUE}==>${RESET} ${BOLD}$1${RESET}"
+banner() {
+  clear
+  echo -e "  ${C}┌──────────────────────────────────────┐${X}"
+  echo -e "  ${C}│${W}${BOLD}   🦀 PicoClaw Gateway Installer     ${X}${C}│${X}"
+  echo -e "  ${C}│${X}      Core Binary Controller          ${C}│${X}"
+  echo -e "  ${C}└──────────────────────────────────────┘${X}"
+  echo ""
 }
 
-print_success() {
-    echo -e "${GREEN}✓${RESET} $1"
+info()    { echo -e "  ${B}▸${X} $1"; }
+success() { echo -e "  ${G}✓${X} $1"; }
+warn()    { echo -e "  ${Y}⚠${X} $1"; }
+err()     { echo -e "  ${R}✗${X} $1"; }
+ask()     {
+    local prompt=$1
+    local default=$2
+    local var_name=$3
+    echo -ne "  ${W}?${X} ${prompt} [${Y}${default}${X}]: "
+    read -r value
+    if [ -z "$value" ]; then
+        eval "$var_name=\"$default\""
+    else
+        eval "$var_name=\"$value\""
+    fi
 }
 
-print_error() {
-    echo -e "${RED}✗${RESET} $1"
-}
-
-print_warn() {
-    echo -e "${YELLOW}!${RESET} $1"
-}
+# ── Utils ─────────────────────────────────────────
 
 get_latest_version() {
     local repo="$1"
@@ -34,17 +50,13 @@ get_latest_version() {
     
     local latest=""
     if echo "$tags" | grep -q '\-fork-0\.'; then
-        # This is the new fork schema (e.g. v0.1.2-fork-0.14). 
-        # We isolate them so sort -V doesn't get confused by older schema like v0.1.2-fork-21
         latest=$(echo "$tags" | grep '\-fork-0\.' | sort -V | tail -n 1)
     else
-        # Standard upstream schema or old fork schema
         latest=$(echo "$tags" | sort -V | tail -n 1)
     fi
     echo "$latest"
 }
 
-# Detect system architecture
 detect_arch() {
     local arch
     arch=$(uname -m)
@@ -52,186 +64,178 @@ detect_arch() {
         x86_64|amd64)  echo "x86_64" ;;
         aarch64|arm64) echo "arm64" ;;
         armv7*|armhf)  echo "armv7" ;;
-        *)
-            print_error "Unsupported architecture: $arch"
-            exit 1
-            ;;
+        *)             echo "unknown" ;;
     esac
 }
 
-echo ""
-echo -e "${BOLD}  PicoClaw Installer${RESET}"
-echo "  ─────────────────────"
-echo ""
+# ── Commands ──────────────────────────────────────
 
-# Detect architecture
-ARCH=$(detect_arch)
-print_success "Detected architecture: $ARCH"
-
-# Ask user which version to install
-echo ""
-echo -e "${BOLD}Select version to install:${RESET}"
-echo "  1) Original (sipeed/picoclaw)"
-echo "  2) Fork (muava12/picoclaw-fork)"
-echo ""
-read -p "Choose [1-2] (default: 2): " version_choice < /dev/tty
-
-INSTALL_MANAGER=false
-
-if [[ "$version_choice" == "1" ]]; then
-    REPO="sipeed/picoclaw"
+cmd_status() {
+    banner
+    echo -e "  ${BOLD}${W}System Status:${X}"
     echo ""
-    print_step "Selected: ${BOLD}Original version${RESET}"
-else
-    REPO="muava12/picoclaw-fork"
-    echo ""
-    print_step "Selected: ${BOLD}Fork version${RESET}"
     
-    echo ""
-    print_step "Optional Components"
-    echo "  PicoClaw Manager (piman) is a background service and CLI tool"
-    echo "  that manages the PicoClaw process lifecycle (start, stop, logs)"
-    echo "  and provides a memory-efficient HTTP API for integrations."
-    echo ""
-    if [ -t 0 ]; then
-        read -p "Do you want to install PicoClaw Manager (piman)? [y/N] " -n 1 -r
+    # 1. Check Binary
+    local inst_path=$(command -v picoclaw || echo "$DEFAULT_INSTALL_DIR/picoclaw")
+    if [ -f "$inst_path" ]; then
+        local ver=$("$inst_path" --version 2>/dev/null | head -n 1 || echo "Unknown")
+        success "Binary: ${W}$inst_path${X}"
+        info "Version: ${G}$ver${X}"
     else
-        read -p "Do you want to install PicoClaw Manager (piman)? [y/N] " -n 1 -r < /dev/tty
+        warn "Binary: ${R}Not found${X}"
     fi
+
+    # 2. Check PATH
+    if [[ ":$PATH:" == *":$HOME/.local/bin:"* ]]; then
+        success "PATH: ${G}Configured${X} ($HOME/.local/bin)"
+    else
+        warn "PATH: ${R}Not in PATH${X} (Manual export needed)"
+    fi
+
+    # 3. Check Service (via Manager)
+    if systemctl is-active --quiet picoclaw-manager 2>/dev/null; then
+        success "Manager Service: ${G}Active${X}"
+    else
+        info "Manager Service: ${Y}Inactive/Not Installed${X}"
+    fi
+
     echo ""
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-        INSTALL_MANAGER=true
+    read -p "Tekan [Enter] untuk kembali..."
+}
+
+cmd_install() {
+    banner
+    info "${BOLD}Starting Installation Wizard...${X}"
+    echo ""
+
+    # Select Repo
+    echo -e "  ${BOLD}Pilih Edisi:${X}"
+    echo "  1) Original (sipeed/picoclaw)"
+    echo "  2) Fork (muava12/picoclaw-fork)"
+    ask "Pilihan" "2" "EDO_CHOICE"
+    if [ "$EDO_CHOICE" == "1" ]; then REPO="sipeed/picoclaw"; else REPO="$DEFAULT_REPO"; fi
+
+    # Configs
+    ask "Direktori Instalasi" "$DEFAULT_INSTALL_DIR" "INSTALL_DIR"
+    ask "Nama Binary" "$DEFAULT_BINARY_NAME" "BINARY_NAME"
+    
+    # Arch
+    local det_arch=$(detect_arch)
+    ask "Arsitektur" "$det_arch" "ARCH"
+    if [ "$ARCH" == "unknown" ]; then
+        err "Arsitektur tidak dikenali secara otomatis. Harap masukkan manual (x86_64, arm64, armv7)."
+        exit 1
     fi
-fi
 
-URL="https://github.com/${REPO}/releases/latest/download/picoclaw_Linux_${ARCH}.tar.gz"
+    echo ""
+    info "Menyisir versi terbaru..."
+    local latest=$(get_latest_version "$REPO")
+    info "Versi Teks: ${G}$latest${X}"
 
-print_step "Checking for latest version..."
-VERSION=$(get_latest_version "$REPO")
-if [ -n "$VERSION" ]; then
-    echo "    Latest: $VERSION"
-else
-    echo "    (unable to fetch version)"
-fi
+    local url="https://github.com/${REPO}/releases/download/${latest}/picoclaw_Linux_${ARCH}.tar.gz"
+    if [ "$latest" == "" ]; then
+        url="https://github.com/${REPO}/releases/latest/download/picoclaw_Linux_${ARCH}.tar.gz"
+    fi
 
-# Check if already installed
-if [ -f "$INSTALL_DIR/$BINARY_NAME" ]; then
-    INSTALLED_VERSION=$("$INSTALL_DIR/$BINARY_NAME" --version 2>/dev/null | sed -n 's/.*\(v\?[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*[^ ]*\).*/\1/p' | head -1)
-    # Strip 'v' prefix if present
-    INSTALLED_VERSION=${INSTALLED_VERSION#v}
-    if [ -n "$INSTALLED_VERSION" ]; then
-        print_success "Already installed: $BINARY_NAME v$INSTALLED_VERSION"
-        
-        if [ -n "$VERSION" ]; then
-            # Strip 'v' prefix for comparison
-            VERSION_NUM=${VERSION#v}
-            if [ "$INSTALLED_VERSION" = "$VERSION_NUM" ]; then
-                echo ""
-                print_success "You already have the latest version!"
-                echo ""
-                echo -e "Run: ${BOLD}picoclaw onboard${RESET} to get started"
-                echo ""
-                exit 0
-            else
-                echo ""
-                echo -e "${BLUE}!${RESET} Update available: v$INSTALLED_VERSION → $VERSION"
-                echo ""
-                if [ -t 0 ]; then
-                    read -p "Do you want to update? [y/N] " -n 1 -r
-                else
-                    read -p "Do you want to update? [y/N] " -n 1 -r < /dev/tty
-                fi
-                echo ""
-                if [[ ! $REPLY =~ ^[Yy]$ ]]; then
-                    print_step "Update cancelled"
-                    echo ""
-                    exit 0
-                fi
-            fi
+    # Execution
+    mkdir -p "$INSTALL_DIR"
+    info "Mengunduh tarball..."
+    
+    cd /tmp
+    curl -fsSL -L "$url" -o picoclaw.tar.gz || { err "Gagal mengunduh file."; exit 1; }
+    
+    info "Mengekstrak..."
+    tar -xzf picoclaw.tar.gz "$DEFAULT_BINARY_NAME"
+    mv -f "$DEFAULT_BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
+    chmod +x "$INSTALL_DIR/$BINARY_NAME"
+    rm -f picoclaw.tar.gz
+
+    success "Instalasi binary selesai: $INSTALL_DIR/$BINARY_NAME"
+
+    # PATH Fix
+    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+        info "Menambahkan $INSTALL_DIR ke PATH..."
+        [ -f "$HOME/.bashrc" ] && ! grep -q "$INSTALL_DIR" "$HOME/.bashrc" && echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$HOME/.bashrc"
+        [ -f "$HOME/.zshrc" ] && ! grep -q "$INSTALL_DIR" "$HOME/.zshrc" && echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$HOME/.zshrc"
+        success "PATH ditambahkan ke .bashrc/.zshrc. Selesaikan dengan 'source ~/.bashrc'."
+    fi
+
+    # Optional Manager
+    if [ "$REPO" == "$DEFAULT_REPO" ]; then
+        echo ""
+        read -p "  Pasang PicoClaw Manager (piman) juga? [y/N] " -n 1 -r
+        echo ""
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            curl -fsSL https://raw.githubusercontent.com/${REPO}/main/setup_picoclaw_manager.sh | bash -s install
         fi
     fi
-fi
 
-mkdir -p "$INSTALL_DIR"
-print_success "Install directory: $INSTALL_DIR"
-
-print_step "Downloading $BINARY_NAME ($ARCH)..."
-cd /tmp
-if command -v pv &> /dev/null; then
-    curl -L "$URL" | pv -b -p -e -r > picoclaw.tar.gz
-else
-    curl -L --progress-bar "$URL" -o picoclaw.tar.gz
-fi
-
-print_step "Extracting..."
-tar -xzf picoclaw.tar.gz "$BINARY_NAME"
-chmod +x "$BINARY_NAME"
-
-print_step "Stopping running PicoClaw instances..."
-# Stop systemd service if active
-if systemctl is-active --quiet picoclaw 2>/dev/null; then
-    sudo systemctl stop picoclaw 2>/dev/null && print_success "Stopped systemd service" || print_warn "Failed to stop systemd service"
-elif systemctl is-active --quiet picoclaw-manager 2>/dev/null; then
-    # Stop via manager API first (graceful)
-    MANAGER_PORT=$(ss -tlnp 2>/dev/null | grep picoclaw_manager | grep -oP ':\K[0-9]+' | head -1)
-    if [ -n "$MANAGER_PORT" ]; then
-        curl -s -X POST "http://localhost:${MANAGER_PORT}/api/picoclaw/stop" >/dev/null 2>&1 && print_success "Stopped via manager API" || true
-    fi
-fi
-# Kill any remaining picoclaw gateway processes
-if pgrep -f "picoclaw gateway" >/dev/null 2>&1; then
-    pkill -f "picoclaw gateway" 2>/dev/null && print_success "Stopped picoclaw gateway process" || true
-    sleep 1
-fi
-
-print_step "Installing..."
-mv -f "$BINARY_NAME" "$INSTALL_DIR/"
-rm -f picoclaw.tar.gz
-
-print_success "Installed to $INSTALL_DIR/$BINARY_NAME"
-print_success "Version: $VERSION"
-
-echo ""
-if [ "$INSTALL_MANAGER" = true ]; then
-    print_step "Installing PicoClaw Manager..."
-    if command -v curl &> /dev/null; then
-        curl -fsSL https://raw.githubusercontent.com/${REPO}/main/setup_picoclaw_manager.sh | bash -s install
-    else
-        wget -qO- https://raw.githubusercontent.com/${REPO}/main/setup_picoclaw_manager.sh | bash -s install
-    fi
-fi
-
-echo ""
-PATH_CHANGED=false
-if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-    print_step "Fixing PATH..."
-    if ! grep -q "$INSTALL_DIR" ~/.bashrc 2>/dev/null; then
-        echo '' >> ~/.bashrc
-        echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
-        print_success "Added to ~/.bashrc"
-        PATH_CHANGED=true
-    else
-        print_success "Already configured in ~/.bashrc"
-    fi
-    # Also add to ~/.zshrc if zsh is available
-    if [ -f "$HOME/.zshrc" ] && ! grep -q "$INSTALL_DIR" ~/.zshrc 2>/dev/null; then
-        echo '' >> ~/.zshrc
-        echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
-        print_success "Added to ~/.zshrc"
-        PATH_CHANGED=true
-    fi
-    export PATH="$INSTALL_DIR:$PATH"
-    print_success "PATH updated for current session"
-else
-    print_success "Already in PATH"
-fi
-
-echo ""
-if [ "$PATH_CHANGED" = true ]; then
-    print_warn "Run this first to activate PATH:"
     echo ""
-    echo -e "  ${BOLD}source ~/.bashrc${RESET}"
+    success "${BOLD}PicoClaw siap digunakan!${X}"
+    read -p "Tekan [Enter] untuk kembali..."
+}
+
+cmd_uninstall() {
+    banner
+    warn "${BOLD}Hapus PicoClaw?${X}"
+    ask "Nama Binary yang dihapus" "$DEFAULT_BINARY_NAME" "BIN_TO_DEL"
+    
+    local target=$(command -v "$BIN_TO_DEL" || echo "$DEFAULT_INSTALL_DIR/$BIN_TO_DEL")
+    if [ -f "$target" ]; then
+        sudo rm -f "$target"
+        success "Binary $target dihapus."
+    else
+        err "Binary tidak ditemukan."
+    fi
+    sleep 2
+}
+
+cmd_onboard() {
+    if command -v picoclaw &> /dev/null; then
+        picoclaw onboard
+    else
+        err "Jalankan instalasi terlebih dahulu."
+        sleep 2
+    fi
+}
+
+cmd_menu() {
+  while true; do
+    banner
+    echo -e "  ${BOLD}Aksi Utama:${X}"
     echo ""
+    echo -e "  ${G}1)${X} Install / Reinstall"
+    echo -e "  ${G}2)${X} Check Status / Version"
+    echo -e "  ${B}3)${X} Check For Updates"
+    echo -e "  ${B}4)${X} Run Onboard Wizard"
+    echo -e "  ${R}5)${X} Uninstall Binary"
+    echo -e "  ${W}0)${X} Exit"
+    echo ""
+    echo -ne "  ${BOLD}Pilihan: ${X}"
+    read -r opt
+    
+    case $opt in
+      1) cmd_install ;;
+      2) cmd_status ;;
+      3) # Simplified update = reinstall latest
+         cmd_install ;;
+      4) cmd_onboard ;;
+      5) cmd_uninstall ;;
+      0) clear; exit 0 ;;
+      *) warn "Pilihan tidak valid."; sleep 1 ;;
+    esac
+  done
+}
+
+# ── Dispatch ──────────────────────────────────────
+if [ -z "$1" ]; then
+    cmd_menu
+else
+    case "$1" in
+        install)   cmd_install ;;
+        status)    cmd_status ;;
+        onboard)   cmd_onboard ;;
+        uninstall) cmd_uninstall ;;
+        *)         cmd_menu ;;
+    esac
 fi
-echo -e "Then run: ${BOLD}picoclaw onboard${RESET} to get started"
-echo ""
