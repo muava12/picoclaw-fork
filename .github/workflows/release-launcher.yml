@@ -1,0 +1,46 @@
+name: Release PicoClaw Launcher
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '^1.25.0'
+
+      - name: Build for Linux (amd64)
+        run: GOOS=linux GOARCH=amd64 go build -o picoclaw-launcher-linux-amd64 ./cmd/picoclaw-launcher/
+
+      - name: Build for Windows (amd64)
+        run: GOOS=windows GOARCH=amd64 go build -o picoclaw-launcher-windows-amd64.exe ./cmd/picoclaw-launcher/
+
+      - name: Build for macOS (arm64)
+        run: GOOS=darwin GOARCH=arm64 go build -o picoclaw-launcher-macos-arm64 ./cmd/picoclaw-launcher/
+        
+      - name: Build for macOS (amd64)
+        run: GOOS=darwin GOARCH=amd64 go build -o picoclaw-launcher-macos-amd64 ./cmd/picoclaw-launcher/
+
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "picoclaw-launcher v0.0.1"
+          tag_name: "pilaunch-v0.0.1"
+          target_commitish: ${{ github.sha }}
+          files: |
+            picoclaw-launcher-linux-amd64
+            picoclaw-launcher-windows-amd64.exe
+            picoclaw-launcher-macos-arm64
+            picoclaw-launcher-macos-amd64
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
