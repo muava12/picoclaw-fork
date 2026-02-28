@@ -20,14 +20,8 @@ jobs:
       - name: Build for Linux (amd64)
         run: GOOS=linux GOARCH=amd64 go build -o picoclaw-launcher-linux-amd64 ./cmd/picoclaw-launcher/
 
-      - name: Build for Windows (amd64)
-        run: GOOS=windows GOARCH=amd64 go build -o picoclaw-launcher-windows-amd64.exe ./cmd/picoclaw-launcher/
-
-      - name: Build for macOS (arm64)
-        run: GOOS=darwin GOARCH=arm64 go build -o picoclaw-launcher-macos-arm64 ./cmd/picoclaw-launcher/
-        
-      - name: Build for macOS (amd64)
-        run: GOOS=darwin GOARCH=amd64 go build -o picoclaw-launcher-macos-amd64 ./cmd/picoclaw-launcher/
+      - name: Build for Linux (arm64)
+        run: GOOS=linux GOARCH=arm64 go build -o picoclaw-launcher-linux-arm64 ./cmd/picoclaw-launcher/
 
       - name: Release
         uses: softprops/action-gh-release@v2
@@ -37,9 +31,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           files: |
             picoclaw-launcher-linux-amd64
-            picoclaw-launcher-windows-amd64.exe
-            picoclaw-launcher-macos-arm64
-            picoclaw-launcher-macos-amd64
+            picoclaw-launcher-linux-arm64
           draft: false
           prerelease: false
         env:
