@@ -33,7 +33,7 @@ ask()     {
     local default=$2
     local var_name=$3
     echo -ne "  ${W}?${X} ${prompt} [${Y}${default}${X}]: "
-    read -r value
+    read -r value < /dev/tty
     if [ -z "$value" ]; then
         eval "$var_name=\"$default\""
     else
@@ -99,8 +99,8 @@ cmd_status() {
         info "Manager Service: ${Y}Inactive/Not Installed${X}"
     fi
 
-    echo ""
-    read -p "Tekan [Enter] untuk kembali..."
+    echo -ne "  Tekan [Enter] untuk kembali..."
+    read -r < /dev/tty
 }
 
 cmd_install() {
@@ -162,8 +162,8 @@ cmd_install() {
 
     # Optional Manager
     if [ "$REPO" == "$DEFAULT_REPO" ]; then
-        echo ""
-        read -p "  Pasang PicoClaw Manager (piman) juga? [y/N] " -n 1 -r
+        echo -ne "  Pasang PicoClaw Manager (piman) juga? [y/N] "
+        read -n 1 -r < /dev/tty
         echo ""
         if [[ $REPLY =~ ^[Yy]$ ]]; then
             curl -fsSL https://raw.githubusercontent.com/${REPO}/main/setup_picoclaw_manager.sh | bash -s install
@@ -172,7 +172,8 @@ cmd_install() {
 
     echo ""
     success "${BOLD}PicoClaw siap digunakan!${X}"
-    read -p "Tekan [Enter] untuk kembali..."
+    echo -ne "  Tekan [Enter] untuk kembali..."
+    read -r < /dev/tty
 }
 
 cmd_uninstall() {
@@ -212,7 +213,7 @@ cmd_menu() {
     echo -e "  ${W}0)${X} Exit"
     echo ""
     echo -ne "  ${BOLD}Pilihan: ${X}"
-    read -r opt
+    read -r opt < /dev/tty
     
     case $opt in
       1) cmd_install ;;

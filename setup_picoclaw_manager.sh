@@ -38,7 +38,7 @@ ask()     {
     local default=$2
     local var_name=$3
     echo -ne "  ${W}?${X} ${prompt} [${Y}${default}${X}]: "
-    read -r value
+    read -r value < /dev/tty
     if [ -z "$value" ]; then
         eval "$var_name=\"$default\""
     else
@@ -136,7 +136,8 @@ UNIT
   echo -e "  ${G}${BOLD}Instalasi Selesai!${X}"
   echo -e "  Jalankan '${W}piman status${X}' untuk mengecek kesehatan sistem."
   echo ""
-  read -p "Tekan [Enter] untuk kembali ke menu..."
+  echo -ne "  Tekan [Enter] untuk kembali ke menu..."
+  read -r < /dev/tty
 }
 
 # ── Update ────────────────────────────────────────
@@ -183,13 +184,15 @@ cmd_status() {
     piman status 2>/dev/null || warn "API tidak merespon."
   fi
   echo ""
-  read -p "Tekan [Enter] untuk kembali..."
+  echo -ne "  Tekan [Enter] untuk kembali..."
+  read -r < /dev/tty
 }
 
 cmd_uninstall() {
   banner
   warn "${BOLD}PERINGATAN: Ini akan menghapus service dan binary!${X}"
-  read -p "  Lanjutkan? [y/N] " -n 1 -r
+  echo -ne "  Lanjutkan? [y/N] "
+  read -r -n 1 -r < /dev/tty
   echo ""
   if [[ ! $REPLY =~ ^[Yy]$ ]]; then return; fi
 
@@ -200,7 +203,8 @@ cmd_uninstall() {
   sudo systemctl daemon-reload
   
   success "Service dibersihkan."
-  read -p "Hapus folder ${DEFAULT_INSTALL_DIR}? [y/N] " -n 1 -r
+  echo -ne "  Hapus folder ${DEFAULT_INSTALL_DIR}? [y/N] "
+  read -r -n 1 -r < /dev/tty
   echo ""
   if [[ $REPLY =~ ^[Yy]$ ]]; then
     sudo rm -rf "$DEFAULT_INSTALL_DIR"
@@ -224,7 +228,7 @@ cmd_menu() {
     echo -e "  ${W}0)${X} Exit"
     echo ""
     echo -ne "  ${BOLD}Pilihan: ${X}"
-    read -r opt
+    read -r opt < /dev/tty
     
     case $opt in
       1) cmd_install ;;
