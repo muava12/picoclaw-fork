@@ -49,6 +49,12 @@ jobs:
           yq -i '.builds[0].goos = ["linux"]' .goreleaser.yaml
           yq -i '.builds[0].goarch = ["${{ matrix.arch }}"]' .goreleaser.yaml
           yq -i 'del(.builds[0].ignore)' .goreleaser.yaml
+          yq -i '.builds[1].goos = ["linux"]' .goreleaser.yaml
+          yq -i '.builds[1].goarch = ["${{ matrix.arch }}"]' .goreleaser.yaml
+          yq -i 'del(.builds[1].ignore)' .goreleaser.yaml
+          yq -i '.builds[2].goos = ["linux"]' .goreleaser.yaml
+          yq -i '.builds[2].goarch = ["${{ matrix.arch }}"]' .goreleaser.yaml
+          yq -i 'del(.builds[2].ignore)' .goreleaser.yaml
           yq -i 'del(.dockers_v2)' .goreleaser.yaml
           yq -i '.snapshot.version_template = "{{ .Env.GORELEASER_CURRENT_TAG }}"' .goreleaser.yaml
 
