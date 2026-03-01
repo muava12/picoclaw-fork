@@ -160,7 +160,9 @@ func (p *Provider) Chat(
 		// Only send prompt_cache_key to known backends that support it.
 		// Strict providers like Groq, OpenRouter, and Gemini (OpenAI compat) reject unknown properties.
 		lowerBase := strings.ToLower(p.apiBase)
-		if strings.Contains(lowerBase, "api.openai.com") || strings.Contains(lowerBase, "chatgpt.com") {
+		if strings.Contains(lowerBase, "api.openai.com") ||
+			strings.Contains(lowerBase, "chatgpt.com") ||
+			strings.Contains(lowerBase, "openai.azure.com") {
 			requestBody["prompt_cache_key"] = cacheKey
 		}
 	}
@@ -315,25 +317,22 @@ func stripSystemParts(messages []Message) []openaiMessage {
 }
 
 func normalizeModel(model, apiBase string) string {
+	before, after, ok := strings.Cut(model, "/")
+	if !ok {
+		return model
+	}
+
 	if strings.Contains(strings.ToLower(apiBase), "openrouter.ai") {
 		return model
 	}
 
-	for {
-		idx := strings.Index(model, "/")
-		if idx == -1 {
-			break
-		}
-
-		prefix := strings.ToLower(model[:idx])
-		switch prefix {
-		case "moonshot", "nvidia", "ollama", "deepseek", "google", "openrouter", "zhipu", "mistral", "groq":
-			model = model[idx+1:]
-		default:
-			return model
-		}
+	prefix := strings.ToLower(before)
+	switch prefix {
+	case "moonshot", "nvidia", "groq", "ollama", "deepseek", "google", "openrouter", "zhipu", "mistral":
+		return after
+	default:
+		return model
 	}
-	return model
 }
 
 func asInt(v any) (int, bool) {
