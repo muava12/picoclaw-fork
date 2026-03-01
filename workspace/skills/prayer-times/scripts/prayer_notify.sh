@@ -7,13 +7,12 @@
 #   prayer_notify.sh notify <prayer> <time> — Send notification via ntfy + stdout
 #   prayer_notify.sh setup <city>           — Set city and fetch initial data
 #   prayer_notify.sh status                 — Show current config and data status
-#   prayer_notify.sh auto_schedule <channel> <chat_id>
-#                                           — Add cron jobs via CLI (no AI)
 #
 # Config file: skills/prayer-times/data/config (co-located with skill)
 # Auto-fetch: schedule command auto-fetches if data is missing or stale
 
 set -euo pipefail
+
 
 # Resolve paths relative to this script's location
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -30,10 +29,12 @@ mkdir -p "$DATA_DIR"
 
 load_config() {
     if [ -f "$CONFIG_FILE" ]; then
-        # Source config file (contains CITY=, SAHUR_MINS=, IFTAR_MINS=, PRAYERS=)
+        # Source config file (contains CITY=, CITY_ID=, CITY_ID_V2=, SAHUR_MINS=, IFTAR_MINS=, PRAYERS=)
         . "$CONFIG_FILE"
     fi
     CITY="${CITY:-samarinda}"
+    CITY_ID="${CITY_ID:-}"
+    CITY_ID_V2="${CITY_ID_V2:-}"
     SAHUR_MINS="${SAHUR_MINS:-30}"
     IFTAR_MINS="${IFTAR_MINS:-10}"
     PRAYERS="${PRAYERS:-shubuh dzuhur ashr magrib isya}"
@@ -43,6 +44,8 @@ load_config() {
 save_config() {
     cat > "$CONFIG_FILE" << EOF
 CITY="$CITY"
+CITY_ID="$CITY_ID"
+CITY_ID_V2="$CITY_ID_V2"
 SAHUR_MINS="$SAHUR_MINS"
 IFTAR_MINS="$IFTAR_MINS"
 PRAYERS="$PRAYERS"
@@ -117,16 +120,39 @@ cmd_setup() {
     if [ -z "$city" ]; then
         echo "Usage: prayer_notify.sh setup <city>"
         echo ""
-        echo "Contoh kota: samarinda, dumai, pekanbaru, jakarta-pusat, surabaya"
-        echo "Lihat daftar di: https://github.com/lakuapik/jadwalsholatorg/tree/master/adzan"
+        echo "PENTING: Jangan asumsikan kota, selalu pastikan user menyebutkan kota eksplisit."
+        echo "Contoh kota: samarinda, dumai, pekanbaru, jakarta, surabaya"
+        exit 1
+    fi
+
+    # URL encode city name for API request
+    local enc_city
+    enc_city=$(python3 -c "import urllib.parse; print(urllib.parse.quote('$city'))")
+
+    # Fetch API v3 City ID
+    local res_v3
+    res_v3=$(curl -sL "https://api.myquran.com/v3/sholat/kota/cari/$enc_city" || echo "")
+    local cid_v3
+    cid_v3=$(echo "$res_v3" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['data'][0]['id'] if data.get('status') and data.get('data') else '')" 2>/dev/null || echo "")
+
+    # Fetch API v2 City ID
+    local res_v2
+    res_v2=$(curl -sL "https://api.myquran.com/v2/sholat/kota/cari/$enc_city" || echo "")
+    local cid_v2
+    cid_v2=$(echo "$res_v2" | python3 -c "import sys, json; data=json.load(sys.stdin); print(data['data'][0]['id'] if data.get('status') and data.get('data') else '')" 2>/dev/null || echo "")
+
+    if [ -z "$cid_v3" ] && [ -z "$cid_v2" ]; then
+        echo "ERROR: Kota '$city' tidak ditemukan di database API myquran.com."
         exit 1
     fi
 
     CITY="$city"
+    CITY_ID="$cid_v3"
+    CITY_ID_V2="$cid_v2"
     save_config
 
-    echo "Kota diset ke: $CITY"
-    echo "Mengambil jadwal sholat..."
+    echo "Kota diset ke: $CITY (API V3 ID: ${CITY_ID:--}, API V2 ID: ${CITY_ID_V2:--})"
+    echo "Mengambil jadwal sholat fallback bulanan..."
     cmd_fetch
 
     echo ""
@@ -136,46 +162,93 @@ cmd_setup() {
 }
 
 cmd_fetch() {
+    if [ -z "$CITY_ID_V2" ]; then
+        echo "ERROR: CITY_ID_V2 tidak ada di config. Jalankan setup terlebih dahulu."
+        exit 1
+    fi
+
     local year month json_path url
     year=$(date +%Y)
     month=$(date +%m)
     json_path=$(get_json_path)
-    url="https://raw.githubusercontent.com/lakuapik/jadwalsholatorg/master/adzan/${CITY}/${year}/${month}.json"
+    url="https://api.myquran.com/v2/sholat/jadwal/$CITY_ID_V2/${year}/${month}"
 
-    echo "Fetching: ${CITY} ${year}-${month}..."
+    echo "Fetching fallback (v2): ${CITY} ${year}-${month}..."
     if curl -sf "$url" -o "$json_path"; then
         local count
-        count=$(python3 -c "import json; print(len(json.load(open('$json_path'))))" 2>/dev/null || echo "?")
+        count=$(python3 -c "import json; data=json.load(open('$json_path')); print(len(data.get('data',{}).get('jadwal',[])))" 2>/dev/null || echo "?")
         echo "OK: $json_path ($count hari)"
     else
         echo "ERROR: Gagal fetch dari $url"
-        echo "Pastikan nama kota benar. Cek: https://github.com/lakuapik/jadwalsholatorg/tree/master/adzan"
         exit 1
     fi
 }
 
 cmd_today() {
     ensure_data
-    local json_path today
+    local json_path today url_v3
     json_path=$(get_json_path)
     today=$(today_date)
-
+    
     python3 -c "
-import json, sys
-data = json.load(open('$json_path'))
-for entry in data:
-    if entry['tanggal'] == '$today':
-        print(f'📅 Jadwal Sholat $CITY ({entry[\"tanggal\"]})')
-        print(f'  Imsyak  : {entry[\"imsyak\"]}')
-        print(f'  Shubuh  : {entry[\"shubuh\"]}')
-        print(f'  Terbit  : {entry[\"terbit\"]}')
-        print(f'  Dhuha   : {entry[\"dhuha\"]}')
-        print(f'  Dzuhur  : {entry[\"dzuhur\"]}')
-        print(f'  Ashar   : {entry[\"ashr\"]}')
-        print(f'  Maghrib : {entry[\"magrib\"]}')
-        print(f'  Isya    : {entry[\"isya\"]}')
-        sys.exit(0)
-print('Tidak ada data untuk $today')
+import urllib.request, json, sys
+
+today = '$today'
+city_id_v3 = '$CITY_ID'
+city_id_v2 = '$CITY_ID_V2'
+city_name = '$CITY'
+json_path = '$json_path'
+
+entry = None
+
+# Try V3 Live API first
+if city_id_v3:
+    url_v3 = f'https://api.myquran.com/v3/sholat/jadwal/{city_id_v3}/' + today.replace('-', '/')
+    try:
+        req = urllib.request.Request(url_v3, headers={'User-Agent': 'Mozilla/5.0'})
+        res = json.loads(urllib.request.urlopen(req, timeout=5).read())
+        if res.get('status') and res.get('data') and res['data'].get('jadwal'):
+            entry = res['data']['jadwal']
+            entry['tanggal'] = entry.get('date', today)
+            
+            # Map v3 fields to internal format
+            entry['imsyak'] = entry.get('imsak', '')
+            entry['shubuh'] = entry.get('subuh', '')
+            entry['magrib'] = entry.get('maghrib', '')
+            
+    except Exception as e:
+        print(f'Warning: Live API v3 failed ({e}), using fallback data...', file=sys.stderr)
+
+# Fallback to local V2 JSON
+if not entry:
+    try:
+        data = json.load(open(json_path))
+        jadwal = data.get('data', {}).get('jadwal', [])
+        for e in jadwal:
+            if e['date'] == today:
+                entry = e
+                # Fix field names for consistency (V2 to V1/V3 mapping)
+                if 'imsak' in entry: entry['imsyak'] = entry['imsak']
+                if 'subuh' in entry: entry['shubuh'] = entry['subuh']
+                if 'maghrib' in entry: entry['magrib'] = entry['maghrib']
+                if 'ashar' in entry: entry['ashr'] = entry['ashar']
+                break
+    except Exception as e:
+        pass
+
+if entry:
+    print(f'📅 Jadwal Sholat {city_name.upper()} ({entry[\"tanggal\"]})')
+    print(f'  Imsyak  : {entry.get(\"imsyak\", \"-\")}')
+    print(f'  Shubuh  : {entry.get(\"shubuh\", \"-\")}')
+    print(f'  Terbit  : {entry.get(\"terbit\", \"-\")}')
+    print(f'  Dhuha   : {entry.get(\"dhuha\", \"-\")}')
+    print(f'  Dzuhur  : {entry.get(\"dzuhur\", \"-\")}')
+    print(f'  Ashar   : {entry.get(\"ashr\", \"-\")}')
+    print(f'  Maghrib : {entry.get(\"magrib\", \"-\")}')
+    print(f'  Isya    : {entry.get(\"isya\", \"-\")}')
+    sys.exit(0)
+
+print(f'Tidak ada data jadwal sholat untuk {today}')
 sys.exit(1)
 "
 }
@@ -195,24 +268,52 @@ cmd_schedule() {
     city_tz=$(city_to_tz "$CITY")
 
     TZ="$city_tz" python3 -c "
-import json, sys, time, os
-from datetime import datetime, timezone, timedelta
+import urllib.request, json, sys, time, os
+from datetime import datetime
 
-data = json.load(open('$json_path'))
 today = '$today'
 now_ts = int('$now_ts')
 sahur_mins = int('$SAHUR_MINS')
 iftar_mins = int('$IFTAR_MINS')
 filter_arg = '$filter'.strip()
+city_id_v3 = '$CITY_ID'
+json_path = '$json_path'
 
 entry = None
-for e in data:
-    if e['tanggal'] == today:
-        entry = e
-        break
+
+# Try V3 Live API first
+if city_id_v3:
+    url_v3 = f'https://api.myquran.com/v3/sholat/jadwal/{city_id_v3}/' + today.replace('-', '/')
+    try:
+        req = urllib.request.Request(url_v3, headers={'User-Agent': 'Mozilla/5.0'})
+        res = json.loads(urllib.request.urlopen(req, timeout=5).read())
+        if res.get('status') and res.get('data') and res['data'].get('jadwal'):
+            entry = res['data']['jadwal']
+            entry['imsyak'] = entry.get('imsak', '')
+            entry['shubuh'] = entry.get('subuh', '')
+            entry['magrib'] = entry.get('maghrib', '')
+    except Exception as e:
+        pass
+
+# Fallback to local V2 JSON
+if not entry:
+    try:
+        data = json.load(open(json_path))
+        jadwal = data.get('data', {}).get('jadwal', [])
+        for e in jadwal:
+            if e['date'] == today:
+                entry = e
+                # Fix field names for consistency
+                if 'imsak' in entry: entry['imsyak'] = entry['imsak']
+                if 'subuh' in entry: entry['shubuh'] = entry['subuh']
+                if 'maghrib' in entry: entry['magrib'] = entry['maghrib']
+                if 'ashar' in entry: entry['ashr'] = entry['ashar']
+                break
+    except Exception as e:
+        pass
 
 if not entry:
-    print('ERROR: Tidak ada data untuk ' + today, file=sys.stderr)
+    print('ERROR: Tidak ada data jadwal sholat untuk ' + today, file=sys.stderr)
     sys.exit(1)
 
 def hhmm_to_epoch(hhmm):
@@ -291,7 +392,7 @@ cmd_notify() {
 
 cmd_status() {
     echo "=== Prayer Times Config ==="
-    echo "Kota     : $CITY"
+    echo "Kota     : $CITY (API V3 ID: ${CITY_ID:--}, API V2 ID: ${CITY_ID_V2:--})"
     echo "Timezone : $(city_to_tz "$CITY")"
     echo "Sahur    : $SAHUR_MINS menit sebelum Shubuh"
     echo "Iftar    : $IFTAR_MINS menit sebelum Maghrib"
@@ -310,163 +411,15 @@ cmd_status() {
     json_path=$(get_json_path)
     if [ -f "$json_path" ]; then
         local count
-        count=$(python3 -c "import json; print(len(json.load(open('$json_path'))))" 2>/dev/null || echo "?")
-        echo "Data bulan ini: ✅ Ada ($count hari)"
+        count=$(python3 -c "import json; data=json.load(open('$json_path')); print(len(data.get('data',{}).get('jadwal',[])))" 2>/dev/null || echo "?")
+        echo "Data fallback bulan ini: ✅ Ada ($count hari)"
         echo "File: $json_path"
     else
-        echo "Data bulan ini: ❌ Belum ada"
+        echo "Data fallback bulan ini: ❌ Belum ada"
         echo "Jalankan: prayer_notify.sh fetch"
     fi
 }
 
-# ---- Auto-schedule: add cron jobs via CLI, no AI needed ----
-
-cmd_auto_schedule() {
-    local channel="${1:-}"
-    local chat_id="${2:-}"
-
-    if [ -z "$channel" ] || [ -z "$chat_id" ]; then
-        echo "Usage: prayer_notify.sh auto_schedule <channel> <chat_id>"
-        exit 1
-    fi
-
-    ensure_data
-    local json_path today now_ts city_tz
-    json_path=$(get_json_path)
-    today=$(today_date)
-    now_ts=$(now_epoch)
-    city_tz=$(city_to_tz "$CITY")
-
-    local filter="$PRAYERS"
-
-    # First, remove old prayer one-time jobs from previous auto_schedule runs
-    local existing_jobs
-    existing_jobs=$(picoclaw cron list 2>/dev/null || true)
-    echo "$existing_jobs" | grep -oP '🕌.*?\((\K[^)]+)' | while read -r job_id; do
-        picoclaw cron remove "$job_id" 2>/dev/null || true
-    done
-
-    # Use Python to calculate times and output picoclaw cron add commands
-    local schedule_output
-    schedule_output=$(TZ="$city_tz" python3 - "$json_path" "$today" "$now_ts" \
-        "$SAHUR_MINS" "$IFTAR_MINS" "$filter" <<'PYTHON_EOF'
-import json, sys, time
-from datetime import datetime
-
-json_path, today, now_ts_s, sahur_mins_s, iftar_mins_s, filter_arg = sys.argv[1:7]
-
-now_ts = int(now_ts_s)
-sahur_mins = int(sahur_mins_s)
-iftar_mins = int(iftar_mins_s)
-
-data = json.load(open(json_path))
-entry = None
-for e in data:
-    if e['tanggal'] == today:
-        entry = e
-        break
-
-if not entry:
-    print('ERROR', file=sys.stderr)
-    sys.exit(1)
-
-def hhmm_to_epoch(hhmm):
-    h, m = map(int, hhmm.split(':'))
-    dt = datetime.strptime(today + f' {h:02d}:{m:02d}:00', '%Y-%m-%d %H:%M:%S')
-    return int(dt.timestamp())
-
-schedule = []
-shubuh_epoch = hhmm_to_epoch(entry['shubuh'])
-sahur_epoch = shubuh_epoch - (sahur_mins * 60)
-sahur_time = time.strftime('%H:%M', time.localtime(sahur_epoch))
-schedule.append(('sahur', sahur_time, sahur_epoch))
-
-for name in ['shubuh', 'dzuhur', 'ashr', 'magrib', 'isya']:
-    schedule.append((name, entry[name], hhmm_to_epoch(entry[name])))
-
-magrib_epoch = hhmm_to_epoch(entry['magrib'])
-iftar_epoch = magrib_epoch - (iftar_mins * 60)
-iftar_time = time.strftime('%H:%M', time.localtime(iftar_epoch))
-schedule.append(('iftar', iftar_time, iftar_epoch))
-
-# Filter
-wanted = set(f.strip().lower() for f in filter_arg.split())
-schedule = [s for s in schedule if s[0] in wanted]
-schedule.sort(key=lambda x: x[2])
-
-# Output future prayers: name|display_time|seconds_from_now
-for name, display_time, epoch in schedule:
-    diff = epoch - now_ts
-    if diff > 0:
-        print(f'{name}|{display_time}|{diff}')
-PYTHON_EOF
-    )
-
-    if [ -z "$schedule_output" ]; then
-        echo "ℹ️ Semua waktu sholat hari ini sudah lewat."
-        exit 0
-    fi
-
-    # Emoji and title maps
-    declare -A emoji_map=(
-        [sahur]="🌙" [shubuh]="🌅" [dzuhur]="☀️"
-        [ashr]="🌤️" [magrib]="🌇" [isya]="🌃" [iftar]="🍽️"
-    )
-    declare -A title_map=(
-        [sahur]="Waktu Sahur" [shubuh]="Waktu Shubuh" [dzuhur]="Waktu Dzuhur"
-        [ashr]="Waktu Ashar" [magrib]="Waktu Maghrib" [isya]="Waktu Isya"
-        [iftar]="Persiapan Buka Puasa"
-    )
-
-    local count=0
-    local summary="🕌 Reminder sholat $today ($CITY) sudah dijadwalkan:"
-
-    while IFS='|' read -r name display_time at_seconds; do
-        local emoji="${emoji_map[$name]:-🕌}"
-        local title="${title_map[$name]:-Waktu Sholat}"
-        local msg
-
-        if [ "$name" = "sahur" ]; then
-            msg="$emoji $title ($display_time) — Ayo bangun sahur! $SAHUR_MINS menit lagi waktu Imsyak."
-        elif [ "$name" = "iftar" ]; then
-            msg="$emoji $title ($display_time) — $IFTAR_MINS menit lagi waktu berbuka puasa!"
-        else
-            msg="$emoji $title ($display_time) — Saatnya menunaikan sholat $name."
-        fi
-
-        # Add Telegram delivery job
-        picoclaw cron add \
-            -n "🕌 $name $display_time" \
-            -m "$msg" \
-            --at "$at_seconds" \
-            -d \
-            --channel "$channel" \
-            --to "$chat_id" 2>/dev/null
-
-        # Add ntfy job if configured
-        if [ -n "$NTFY_TOPIC" ]; then
-            picoclaw cron add \
-                -n "🕌 ntfy:$name" \
-                -m "ntfy: $name" \
-                --at "$at_seconds" \
-                --command "bash $SCRIPT_DIR/prayer_notify.sh notify $name $display_time" \
-                --channel "$channel" \
-                --to "$chat_id" 2>/dev/null
-        fi
-
-        summary="$summary
-  $emoji ${title} ${display_time}"
-        count=$((count + 1))
-    done <<< "$schedule_output"
-
-    local ntfy_status="❌ tidak aktif"
-    [ -n "$NTFY_TOPIC" ] && ntfy_status="✅ aktif"
-
-    echo "$summary"
-    echo ""
-    echo "📍 Timezone: $(city_to_tz "$CITY")"
-    echo "📊 Total: $count reminder | ntfy: $ntfy_status"
-}
 
 # ---- Main ----
 
@@ -479,19 +432,16 @@ case "${1:-help}" in
     schedule)      shift; cmd_schedule "$@" ;;
     notify)        shift; cmd_notify "$@" ;;
     status)        cmd_status ;;
-    auto_schedule) shift; cmd_auto_schedule "$@" ;;
     help|*)
-        echo "Usage: prayer_notify.sh {setup|fetch|today|schedule|notify|status|auto_schedule}"
+        echo "Usage: prayer_notify.sh {setup|fetch|today|schedule|notify|status}"
         echo ""
         echo "Commands:"
         echo "  setup <city>           Set kota dan fetch data awal"
         echo "  fetch                  Download jadwal bulan ini"
         echo "  today                  Tampilkan jadwal hari ini"
-        echo "  schedule [prayers...]  Hitung detik-dari-sekarang untuk reminder"
+        echo "  schedule [prayers...]  Hitung detik-dari-sekarang untuk reminder AI"
         echo "  notify <prayer> <time> Kirim notifikasi (ntfy + stdout)"
         echo "  status                 Tampilkan config dan status data"
-        echo "  auto_schedule <store> <channel> <chat_id>"
-        echo "                         Tulis cron job langsung (tanpa AI)"
         echo ""
         echo "Config: $CONFIG_FILE"
         echo "Kota saat ini: $CITY"

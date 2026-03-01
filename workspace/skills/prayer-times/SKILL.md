@@ -1,12 +1,12 @@
 ---
 name: prayer-times
-description: Jadwal sholat otomatis — reminder waktu sholat, sahur, dan buka puasa. Data dari github.com/lakuapik/jadwalsholatorg
+description: Jadwal sholat harian otomatis — reminder waktu sholat, sahur, dan buka puasa.
 metadata: {"nanobot":{"emoji":"🕌"}}
 ---
 
 # Prayer Times / Jadwal Sholat
 
-Reminder otomatis waktu sholat. Data dari [github.com/lakuapik/jadwalsholatorg](https://github.com/lakuapik/jadwalsholatorg).
+Reminder otomatis waktu sholat. Data dari API [myquran.com](https://api.myquran.com/).
 Notifikasi dikirim ke **Telegram + ntfy**.
 
 ## Script
@@ -24,10 +24,9 @@ chmod +x skills/prayer-times/scripts/prayer_notify.sh
 | `today` | Tampilkan jadwal hari ini |
 | `schedule [prayers...]` | Output `nama\|HH:MM\|detik` untuk sholat yang belum lewat |
 | `notify <prayer> <time>` | Kirim ke ntfy + cetak pesan untuk Telegram |
-| `auto_schedule <channel> <chat_id>` | **Tulis cron job via picoclaw CLI (tanpa AI)** |
 | `status` | Tampilkan config dan status data |
 
-**Auto-fetch**: `schedule`, `today`, dan `auto_schedule` otomatis fetch jika data bulan ini belum ada.
+**Auto-fetch**: `schedule` dan `today` otomatis fetch jika data bulan ini belum ada.
 
 ## Trigger Phrases
 
@@ -41,15 +40,16 @@ chmod +x skills/prayer-times/scripts/prayer_notify.sh
 
 Saat user **pertama kali** minta reminder sholat:
 
-### 1. Tanya kota dan ntfy topic
-- Kota: samarinda, dumai, pekanbaru, jakarta-pusat, surabaya, dll
+### 1. Tanya kota secara eksplisit dan setup ntfy topic
+- **PENTING**: Anda **WAJIB** bertanya kepada user untuk mengonfirmasi nama kota (contoh: "Apakah Anda ingin menggunakan kota Jakarta?"). **JANGAN** pernah menebak atau berasumsi kota tanpa persetujuan eksplisit dari user.
+- Kota: samarinda, dumai, pekanbaru, jakarta, surabaya, dll
 - ntfy topic: URL ntfy.sh user (opsional, bisa ditambah nanti)
 
 ### 2. Setup kota (via exec tool, BUKAN cron)
 ```bash
 bash skills/prayer-times/scripts/prayer_notify.sh setup dumai
 ```
-Ini akan save config ke `skills/prayer-times/data/config` dan fetch data bulan ini.
+Ini akan mencari ID kota via `api.myquran.com/v3`, save config ke `skills/prayer-times/data/config`, dan men-download data bulan ini sebagai fallback.
 
 ### 3. Setup ntfy (opsional, via exec tool)
 Jika user memberikan ntfy URL, tambahkan ke config:
@@ -58,32 +58,32 @@ sed -i 's|NTFY_TOPIC=".*"|NTFY_TOPIC="https://ntfy.sh/USER_TOPIC"|' skills/praye
 ```
 Simpan juga ke MEMORY.md agar tidak lupa.
 
-### 4. Setup monthly fetch cron (tanggal 1, jam 01:00)
+### 4. Setup monthly fallback cron (tanggal 1, jam 01:00)
+Meskipun scheduler harian menggunakan API live v3, kita mendownload backup bulanan via v2:
 ```json
-{"action": "add", "message": "Monthly prayer fetch", "command": "bash skills/prayer-times/scripts/prayer_notify.sh fetch", "cron_expr": "0 1 1 * *"}
+{"action": "add", "message": "Monthly prayer fallback fetch", "command": "bash skills/prayer-times/scripts/prayer_notify.sh fetch", "cron_expr": "0 1 1 * *"}
 ```
 
 ### 5. Setup daily auto-scheduler (jam 01:30 setiap hari)
 
-**PENTING**: Gunakan `command` mode agar script langsung menulis cron job. AI **tidak** perlu terlibat.
+**PENTING**: Buat satu cron job background (`deliver: false`) agar AI sendiri yang mengatur jadwal setiap harinya. AI akan merespons trigger ini tanpa interaksi user.
 
 ```json
 {
   "action": "add",
-  "message": "Daily prayer auto-schedule",
-  "command": "bash skills/prayer-times/scripts/prayer_notify.sh auto_schedule telegram CHAT_ID",
-  "cron_expr": "30 1 * * *"
+  "message": "Kamu adalah scheduler sholat otomatis. Lakukan langkah berikut secara berurutan:\n\n1. Jalankan perintah ini untuk mendapatkan jadwal sholat hari ini:\n   `bash skills/prayer-times/scripts/prayer_notify.sh schedule`\n\n2. Output script akan berupa satu baris per waktu sholat, dengan format:\n   `nama_sholat|jam_notifikasi|detik_dari_sekarang`\n   Contoh:\n   ```\n   shubuh|04:32|5400\n   dzuhur|12:05|37500\n   ashr|15:20|49200\n   magrib|18:10|60600\n   isya|19:25|65100\n   ```\n\n3. Untuk setiap baris output, buat 1 cron job menggunakan tool `cron` dengan parameter:\n   - `message`: label identitas cron, format: `🕌 sholat:<nama_sholat> <jam_notifikasi>` (contoh: `🕌 sholat:dzuhur 12:05`) — field ini berfungsi sebagai nama/label di cron list\n   - `at_seconds`: isi dengan nilai `detik_dari_sekarang` dari output\n   - `command`: `bash skills/prayer-times/scripts/prayer_notify.sh notify <nama_sholat> <jam_notifikasi>`\n   - `deliver`: true (agar notifikasi terkirim ke Telegram)\n\n4. Setelah semua cron terdaftar, kirim 1 pesan singkat ke Telegram:\n   '🕌 Jadwal sholat hari ini sudah diset. (X waktu terdaftar)'\n   ganti X dengan jumlah cron yang berhasil dibuat.\n\n5. Jika output script kosong (semua waktu sudah lewat), tidak perlu kirim pesan.",
+  "cron_expr": "30 1 * * *",
+  "deliver": false
 }
 ```
 
-Ganti `CHAT_ID` dengan chat ID user yang meminta (tersedia di session context).
-Script akan menambah reminder sholat ke cron via `picoclaw cron add`, tanpa perlu AI.
+Script `auto_schedule` CLI sudah tidak lagi digunakan (deprecated) karena issue sinkronisasi dengan Gateway. AI kini bertanggung jawab membaca output `schedule` (`nama|jam|detik`) lalu mendaftarkannya via format tool `cron` internal.
 
 ## Config File
 
 Disimpan di `skills/prayer-times/data/config` — **milik skill ini sendiri, tidak shared**:
 ```
-CITY="dumai"
+CITY="samarinda"
 SAHUR_MINS="30"
 IFTAR_MINS="10"
 PRAYERS="shubuh dzuhur ashr magrib isya"
@@ -121,8 +121,8 @@ Ini penting agar epoch calculation sesuai waktu lokal kota, bukan system timezon
 
 ## Rules
 
-1. **Tanya kota** saat pertama kali — jangan asumsi. Jalankan `setup <kota>` sebelum apapun.
-2. **JANGAN hardcode waktu sholat** — selalu baca dari script output. Waktu berubah setiap hari.
-3. **Gunakan auto_schedule** untuk daily scheduler — ini menulis cron job langsung tanpa AI.
-4. **at_seconds auto-delete** — one-time job otomatis hilang setelah trigger.
-5. **Auto-fetch** — script otomatis download data jika file bulan ini belum ada.
+1. **WAJIB tanya kota eksplisit** saat pertama kali — jangan berasumsi. Tunggu jawaban user, lalu jalankan `setup <kota>`.
+2. **JANGAN hardcode waktu sholat** — selalu panggil scheduler. Data harian ditarik dari API v3 myquran, dengan fallback data JSON lokal v2.
+3. **Daily scheduler bersifat AI-Driven** — Tambahkan satu cron bulanan (untuk fetch) dan satu cron harian (`deliver: false`). AI akan memanggil `schedule` dan mendaftarkan alarm Telegram (dan ntfy) menggunakan tool `cron` bawaannya.
+4. **at_seconds auto-delete** — gunakan format `at_seconds` (detik dari sekarang) untuk mendaftarkan alarm sholat agar otomatis hilang setelah trigger.
+5. **Auto-fetch fallback** — script otomatis download data fallback file bulan ini jika belum ada.

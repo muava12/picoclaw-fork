@@ -1,0 +1,7 @@
+CITY=""
+CITY_ID=""
+CITY_ID_V2=""
+SAHUR_MINS="30"
+IFTAR_MINS="10"
+PRAYERS="shubuh dzuhur ashr magrib isya"
+NTFY_TOPIC=""
