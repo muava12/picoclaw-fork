@@ -127,6 +127,21 @@ detect_arch() {
     esac
 }
 
+stop_picoclaw_if_running() {
+    # 1. Check Manager Service
+    if systemctl is-active --quiet picoclaw-manager 2>/dev/null; then
+        info "Menghentikan service picoclaw-manager..."
+        sudo systemctl stop picoclaw-manager || true
+    fi
+
+    # 2. Kill orphan/direct gateway processes
+    if pgrep -f "picoclaw gateway" &>/dev/null; then
+        info "Menghentikan proses picoclaw yang sedang berjalan..."
+        pkill -f "picoclaw gateway" || true
+        sleep 1
+    fi
+}
+
 # ── Commands ──────────────────────────────────────
 
 cmd_status() {
@@ -199,6 +214,10 @@ cmd_install() {
 
     # Execution - from here on, we want to stop on any failure
     set -e
+    
+    # Stop processes to avoid "file busy"
+    stop_picoclaw_if_running
+
     mkdir -p "$INSTALL_DIR"
     info "Mengunduh tarball..."
     
@@ -207,11 +226,21 @@ cmd_install() {
     
     info "Mengekstrak..."
     tar -xzf picoclaw.tar.gz "$DEFAULT_BINARY_NAME"
-    mv -f "$DEFAULT_BINARY_NAME" "$INSTALL_DIR/$BINARY_NAME"
-    chmod +x "$INSTALL_DIR/$BINARY_NAME"
+    
+    # Atomic Move
+    mv -f "$DEFAULT_BINARY_NAME" "$INSTALL_DIR/${BINARY_NAME}.tmp"
+    chmod +x "$INSTALL_DIR/${BINARY_NAME}.tmp"
+    mv -f "$INSTALL_DIR/${BINARY_NAME}.tmp" "$INSTALL_DIR/$BINARY_NAME"
+    
     rm -f picoclaw.tar.gz
 
     success "Instalasi binary selesai: $INSTALL_DIR/$BINARY_NAME"
+
+    # Start Manager back if it was stopped
+    if systemctl is-enabled --quiet picoclaw-manager 2>/dev/null; then
+        info "Menjalankan kembali service picoclaw-manager..."
+        sudo systemctl start picoclaw-manager || true
+    fi
 
     # PATH Fix
     if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
