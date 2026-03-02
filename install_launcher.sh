@@ -42,11 +42,11 @@ need_sudo() {
 # Early sudo authentication to avoid failing later in a pipe
 require_sudo_early() {
     if ! sudo -n true 2>/dev/null; then
-        info "Akses sudo diperlukan untuk manajemen service systemd."
+        echo -ne "  ${Y}⚠${X} Akses sudo diperlukan untuk manajemen service systemd.\n"
         if [ -c /dev/tty ]; then
-            sudo -S true < /dev/tty 2>/dev/null
+            sudo -p "  🔑 Masukkan password sudo untuk %u: " -S true < /dev/tty 2>/dev/null
         else
-            sudo -v
+            sudo -p "  🔑 Masukkan password sudo untuk %u: " -v
         fi
         if ! sudo -n true 2>/dev/null; then
             err "Gagal mendapatkan akses sudo. Service tidak dapat diatur."
