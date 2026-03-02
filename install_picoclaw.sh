@@ -89,8 +89,25 @@ fetch_versions() {
     local inst_path
     inst_path=$(command -v picoclaw 2>/dev/null || echo "$DEFAULT_INSTALL_DIR/picoclaw")
     CUR_VER="(tidak terpasang)"
+    
     if [ -x "$inst_path" ]; then
-        CUR_VER=$("$inst_path" --version 2>/dev/null | head -n 1 || echo "unknown")
+        # Try 'version' subcommand, then '--version' flag
+        local full_ver
+        full_ver=$("$inst_path" version 2>/dev/null | head -n 1)
+        if [ -z "$full_ver" ]; then
+            full_ver=$("$inst_path" --version 2>/dev/null | head -n 1)
+        fi
+        
+        if [ -n "$full_ver" ]; then
+            # Extract version like v0.1.2... using grep
+            CUR_VER=$(echo "$full_ver" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+[^ ]*' | head -n 1)
+            # If regex fails, fallback to full string cleaned of logo
+            if [ -z "$CUR_VER" ]; then
+                CUR_VER=$(echo "$full_ver" | sed 's/🦞 //g' | sed 's/picoclaw //g')
+            fi
+        else
+            CUR_VER="unknown"
+        fi
     fi
 
     # Latest versions (fetch once)
@@ -245,13 +262,8 @@ cmd_check_update() {
     echo ""
 
     # Versi terpasang
-    local inst_path
-    inst_path=$(command -v picoclaw 2>/dev/null || echo "$DEFAULT_INSTALL_DIR/picoclaw")
-    local installed="(tidak terpasang)"
-    if [ -x "$inst_path" ]; then
-        installed=$("$inst_path" --version 2>/dev/null | head -n 1 || echo "unknown")
-    fi
-    info "Terpasang : ${W}${installed}${X}"
+    fetch_versions # Use the robust one
+    info "Terpasang : ${W}${CUR_VER}${X}"
 
     info "Memeriksa versi terbaru..."
     local latest
@@ -283,7 +295,7 @@ cmd_menu() {
   while true; do
     banner
     echo -e "  ${BOLD}Status Sistem:${X}"
-    echo -e "  Terpasang : ${W}${CUR_VER% (fork*)}${X}"
+    echo -e "  Terpasang : ${W}${CUR_VER}${X}"
     echo -e "  Rilis Fork: ${G}${LATEST_FORK}${X}"
     echo -e "  Rilis Orig: ${C}${LATEST_ORIG}${X}"
     echo ""
