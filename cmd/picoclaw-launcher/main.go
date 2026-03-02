@@ -30,8 +30,13 @@ import (
 //go:embed internal/ui/index.html
 var staticFiles embed.FS
 
+// Version is the current version of the launcher.
+// This matches the release tag.
+const Version = "v0.0.1"
+
 func main() {
 	public := flag.Bool("public", false, "Listen on all interfaces (0.0.0.0) instead of localhost only")
+	version := flag.Bool("version", false, "Print version information and exit")
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "PicoClaw Launcher - A web-based configuration editor\n\n")
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] [config.json]\n\n", os.Args[0])
@@ -49,6 +54,11 @@ func main() {
 		)
 	}
 	flag.Parse()
+
+	if *version {
+		fmt.Printf("pilaunch-%s\n", Version)
+		return
+	}
 
 	configPath := server.DefaultConfigPath()
 	if flag.NArg() > 0 {
