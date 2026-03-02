@@ -176,7 +176,14 @@ func handleStatusGateway(w http.ResponseWriter, r *http.Request, absPath string)
 	}
 
 	url := fmt.Sprintf("http://%s/health", net.JoinHostPort(host, strconv.Itoa(port)))
-	client := http.Client{Timeout: 2 * time.Second}
+	
+	// Dynamic timeout: 500ms for local, 2s for others
+	timeout := 2 * time.Second
+	if host == "127.0.0.1" || host == "localhost" {
+		timeout = 500 * time.Millisecond
+	}
+	
+	client := http.Client{Timeout: timeout}
 	resp, err := client.Get(url)
 
 	// Build the response data map

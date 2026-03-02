@@ -1844,7 +1844,7 @@ async function checkProcessStatus() {
 
 function restoreNormalPolling() {
     clearInterval(processPolling);
-    processPolling = setInterval(checkProcessStatus, 5000);
+    processPolling = setInterval(checkProcessStatus, 2000);
 }
 
 async function startGateway() {
@@ -1892,9 +1892,18 @@ document.getElementById('btnRunStop').addEventListener('click', () => {
     if (gatewayRunning) { stopGateway(); } else { startGateway(); }
 });
 
-// Poll status every 5 seconds
+// Polling logic
 checkProcessStatus();
-processPolling = setInterval(checkProcessStatus, 5000);
+// Normal polling 2s
+processPolling = setInterval(checkProcessStatus, 2000);
+
+// Quick burst polling for first 5 seconds to catch status faster on reload
+let burstCount = 0;
+const burstPolling = setInterval(() => {
+    checkProcessStatus();
+    burstCount++;
+    if (burstCount >= 5) clearInterval(burstPolling);
+}, 1000);
 
 // ── Log Panel ───────────────────────────────────────
 let logOffset = 0;
