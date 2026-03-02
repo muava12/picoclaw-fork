@@ -116,7 +116,7 @@ After=network.target
 [Service]
 Type=simple
 User=${user_name}
-ExecStart=${INSTALL_DIR}/${BINARY_NAME}
+ExecStart=${INSTALL_DIR}/${BINARY_NAME} -public
 Restart=always
 RestartSec=5
 Environment=HOME=${home_dir}
