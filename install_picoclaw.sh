@@ -64,16 +64,19 @@ ask() {
 
 get_latest_version() {
     local repo="$1"
+    # Fetch all tags, exclude piman/pilaunch
     local tags
-    tags=$(curl -s "https://api.github.com/repos/${repo}/releases" | grep '"tag_name":' | grep -v 'piman' | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
-    
-    local latest=""
-    if echo "$tags" | grep -q '\-fork-0\.'; then
-        latest=$(echo "$tags" | grep '\-fork-0\.' | sort -V | tail -n 1)
-    else
-        latest=$(echo "$tags" | sort -V | tail -n 1)
-    fi
-    echo "$latest"
+    tags=$(curl -s "https://api.github.com/repos/${repo}/releases" \
+        | grep '"tag_name":' \
+        | grep -v 'piman\|pilaunch' \
+        | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
+
+    # Sort by numeric suffix after last '-' (handles fork-0.24 > fork-0.9 correctly)
+    echo "$tags" | grep 'fork-' \
+        | awk -F'[.-]' '{n=$NF+0; print n, $0}' \
+        | sort -k1,1n \
+        | tail -n 1 \
+        | cut -d' ' -f2-
 }
 
 detect_arch() {
@@ -216,8 +219,37 @@ cmd_uninstall() {
     sleep 2
 }
 
+cmd_check_update() {
+    banner
+    echo -e "  ${BOLD}${W}Update Check:${X}"
+    echo ""
+
+    # Versi terpasang
+    local inst_path
+    inst_path=$(command -v picoclaw 2>/dev/null || echo "$DEFAULT_INSTALL_DIR/picoclaw")
+    local installed="(tidak terpasang)"
+    if [ -x "$inst_path" ]; then
+        installed=$("$inst_path" --version 2>/dev/null | head -n 1 || echo "unknown")
+    fi
+    info "Terpasang : ${W}${installed}${X}"
+
+    info "Memeriksa versi terbaru..."
+    local latest
+    latest=$(get_latest_version "$DEFAULT_REPO")
+    if [ -z "$latest" ]; then
+        warn "Tidak dapat membaca versi terbaru dari GitHub."
+    else
+        info "Tersedia  : ${G}${latest}${X}"
+        echo ""
+        echo -e "  Untuk update, jalankan: ${W}curl -fsSL .../install_picoclaw.sh | bash -s install${X}"
+    fi
+    echo ""
+    echo -ne "  Tekan [Enter] untuk kembali..."
+    read_tty -r
+}
+
 cmd_onboard() {
-    if command -v picoclaw &> /dev/null; then
+    if command -v picoclaw &>/dev/null; then
         picoclaw onboard
     else
         err "Jalankan instalasi terlebih dahulu."
@@ -247,8 +279,7 @@ cmd_menu() {
     case $opt in
       1) cmd_install ;;
       2) cmd_status ;;
-      3) # Simplified update = reinstall latest
-         cmd_install ;;
+      3) cmd_check_update ;;
       4) cmd_onboard ;;
       5) cmd_uninstall ;;
       0) banner; exit 0 ;;
@@ -262,10 +293,11 @@ if [ -z "$1" ]; then
     cmd_menu
 else
     case "$1" in
-        install)   cmd_install ;;
-        status)    cmd_status ;;
-        onboard)   cmd_onboard ;;
-        uninstall) cmd_uninstall ;;
-        *)         cmd_menu ;;
+        install)      cmd_install ;;
+        status)       cmd_status ;;
+        check-update) cmd_check_update ;;
+        onboard)      cmd_onboard ;;
+        uninstall)    cmd_uninstall ;;
+        *)            cmd_menu ;;
     esac
 fi
