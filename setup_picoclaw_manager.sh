@@ -61,9 +61,35 @@ ask() {
     fi
 }
 
+# Returns the latest piman-vX.Y.Z tag
 get_latest_manager_version() {
     curl -s "https://api.github.com/repos/${REPO}/releases" | \
-        grep '"tag_name":' | grep -Eo 'piman-[^"]+' | head -n 1
+        grep '"tag_name":' | grep -Eo '"piman-[^"]+' | tr -d '"' | sort -V | tail -n 1
+}
+
+detect_arch() {
+    case "$(uname -m)" in
+        x86_64|amd64)  echo "amd64" ;;
+        aarch64|arm64) echo "arm64" ;;
+        *)
+            err "Arsitektur tidak didukung: $(uname -m)"
+            return 1
+            ;;
+    esac
+}
+
+# Stop service jika sedang berjalan; returns 0 selalu
+stop_service_if_running() {
+    if systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null; then
+        info "Menghentikan service ${SERVICE_NAME} yang sedang berjalan..."
+        sudo systemctl stop "$SERVICE_NAME" || true
+        # Tunggu hingga benar-benar berhenti
+        local i=0
+        while systemctl is-active --quiet "$SERVICE_NAME" 2>/dev/null && [ $i -lt 10 ]; do
+            sleep 1; i=$((i+1))
+        done
+        success "Service dihentikan."
+    fi
 }
 
 # ── Install ───────────────────────────────────────
@@ -75,56 +101,52 @@ cmd_install() {
   # 1. Configuration
   ask "Direktori Instalasi" "$DEFAULT_INSTALL_DIR" "INSTALL_DIR"
   ask "Nama Binary Manager" "$DEFAULT_BINARY_NAME" "BINARY_NAME"
-  
-  # Auto-detect picoclaw
-  if command -v picoclaw &> /dev/null; then
+
+  # Auto-detect picoclaw binary
+  if command -v picoclaw &>/dev/null; then
     DETECTED_BIN=$(command -v picoclaw)
   else
     DETECTED_BIN="${REAL_HOME}/.local/bin/picoclaw"
   fi
   ask "Path Binary PicoClaw" "$DETECTED_BIN" "PICOCLAW_BIN"
-  
   ask "Jalankan sebagai User" "$REAL_USER" "RUN_USER"
 
   echo ""
-  info "Konfigurasi diproses. Menyiapkan sistem..."
+  info "Mendeteksi arsitektur..."
+  local arch_final
+  arch_final=$(detect_arch) || return 1
 
-  set -e
-  # Detect architecture
-  local arch_raw=$(uname -m)
-  local arch_final=""
-  case "$arch_raw" in
-      x86_64|amd64)  arch_final="amd64" ;;
-      aarch64|arm64) arch_final="arm64" ;;
-      *)
-          err "Arsitektur tidak didukung: $arch_raw"
-          set +e; return 1
-          ;;
-  esac
-
-  local version=$(get_latest_manager_version)
+  info "Menyisir versi terbaru..."
+  local version
+  version=$(get_latest_manager_version)
   if [ -z "$version" ]; then
       err "Gagal mendapatkan versi terbaru dari GitHub."
-      set +e; return 1
+      return 1
   fi
+  info "Versi: ${G}${version}${X}"
 
   local dl_url="https://github.com/${REPO}/releases/download/${version}/picoclaw-manager-linux-${arch_final}"
 
-  info "Mendownload ${BINARY_NAME} ${version}..."
+  # ── Stop service dulu sebelum overwrite binary ──
+  stop_service_if_running
+
+  info "Mengunduh ${BINARY_NAME} (${version})..."
   sudo mkdir -p "$INSTALL_DIR"
-  sudo curl -fsSL -L -o "${INSTALL_DIR}/${BINARY_NAME}" "$dl_url" || {
-      err "Gagal mendownload binary."
-      set +e; return 1
+  sudo curl -fsSL -L -o "${INSTALL_DIR}/${BINARY_NAME}.tmp" "$dl_url" || {
+      err "Gagal mengunduh binary dari: $dl_url"
+      return 1
   }
+  # Atomic replace — hindari binary korup jika curl terputus di tengah
+  sudo mv -f "${INSTALL_DIR}/${BINARY_NAME}.tmp" "${INSTALL_DIR}/${BINARY_NAME}"
   sudo chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
-  
-  # Symlink
+
+  # Symlink CLI
   sudo ln -sf "${INSTALL_DIR}/${BINARY_NAME}" /usr/local/bin/piman
   success "Binary terpasang & CLI 'piman' aktif."
 
   # Systemd Service
   info "Membuat file service systemd..."
-  sudo tee "$SERVICE_FILE" > /dev/null << UNIT
+  sudo tee "$SERVICE_FILE" > /dev/null <<UNIT
 [Unit]
 Description=PicoClaw Manager — Process Lifecycle Server
 After=network-online.target
@@ -147,8 +169,14 @@ UNIT
   sudo systemctl daemon-reload
   sudo systemctl enable "$SERVICE_NAME"
   sudo systemctl restart "$SERVICE_NAME"
-  success "Service ${SERVICE_NAME} berhasil dijalankan!"
-  set +e
+
+  # Verifikasi service benar-benar up
+  sleep 2
+  if systemctl is-active --quiet "$SERVICE_NAME"; then
+      success "Service ${SERVICE_NAME} aktif!"
+  else
+      warn "Service mungkin belum aktif. Cek dengan: sudo journalctl -u ${SERVICE_NAME} -n 30"
+  fi
 
   echo ""
   echo -e "  ${G}${BOLD}Instalasi Selesai!${X}"
@@ -162,35 +190,51 @@ UNIT
 cmd_update() {
   banner
   info "Memeriksa pembaruan..."
-  
-  # Set default paths if not set (case for direct command call)
+
   INSTALL_DIR="${INSTALL_DIR:-$DEFAULT_INSTALL_DIR}"
   BINARY_NAME="${BINARY_NAME:-$DEFAULT_BINARY_NAME}"
 
-  set -e
-  local version=$(get_latest_manager_version)
-  local arch_raw=$(uname -m)
-  local arch_final=""
-  case "$arch_raw" in
-      x86_64|amd64)  arch_final="amd64" ;;
-      aarch64|arm64) arch_final="arm64" ;;
-  esac
+  local arch_final
+  arch_final=$(detect_arch) || return 1
 
-  local dl_url="https://github.com/${REPO}/releases/download/piman-${version}/picoclaw-manager-linux-${arch_final}"
-  
-  info "Mengunduh versi ${version}..."
-  sudo curl -fsSL -L -o "${INSTALL_DIR}/${BINARY_NAME}" "$dl_url"
-  sudo systemctl restart "$SERVICE_NAME"
-  set +e
-  
-  success "Update ke versi ${version} berhasil!"
+  local version
+  version=$(get_latest_manager_version)
+  if [ -z "$version" ]; then
+      err "Gagal mendapatkan versi terbaru."
+      return 1
+  fi
+  info "Update ke: ${G}${version}${X}"
+
+  # Tag format: piman-vX.Y.Z → binary URL: .../piman-vX.Y.Z/picoclaw-manager-linux-arch
+  local dl_url="https://github.com/${REPO}/releases/download/${version}/picoclaw-manager-linux-${arch_final}"
+
+  # Stop service sebelum update
+  stop_service_if_running
+
+  info "Mengunduh binary baru..."
+  sudo curl -fsSL -L -o "${INSTALL_DIR}/${BINARY_NAME}.tmp" "$dl_url" || {
+      err "Gagal mengunduh binary."
+      # Restart service dengan binary lama
+      sudo systemctl start "$SERVICE_NAME" || true
+      return 1
+  }
+  sudo mv -f "${INSTALL_DIR}/${BINARY_NAME}.tmp" "${INSTALL_DIR}/${BINARY_NAME}"
+  sudo chmod +x "${INSTALL_DIR}/${BINARY_NAME}"
+
+  sudo systemctl start "$SERVICE_NAME"
+  sleep 2
+  if systemctl is-active --quiet "$SERVICE_NAME"; then
+      success "Update ke ${version} berhasil & service aktif!"
+  else
+      warn "Update selesai tapi service gagal start. Cek: sudo journalctl -u ${SERVICE_NAME} -n 30"
+  fi
   sleep 2
 }
 
 # ── Service Management ────────────────────────────
 cmd_restart() {
     info "Restarting service..."
-    sudo systemctl restart "$SERVICE_NAME" && success "Done."
+    sudo systemctl restart "$SERVICE_NAME" && success "Done." || err "Gagal restart."
     sleep 1
 }
 
@@ -200,7 +244,7 @@ cmd_status() {
   echo ""
   sudo systemctl status "$SERVICE_NAME" --no-pager -l || warn "Service belum terpasang."
   echo ""
-  if command -v piman &> /dev/null; then
+  if command -v piman &>/dev/null; then
     echo -e "  ${W}${BOLD}API Status:${X}"
     piman status 2>/dev/null || warn "API tidak merespon."
   fi
@@ -221,13 +265,13 @@ cmd_uninstall() {
     return 1
   fi
 
-  sudo systemctl stop "$SERVICE_NAME" || true
+  stop_service_if_running
   sudo systemctl disable "$SERVICE_NAME" || true
   sudo rm -f "$SERVICE_FILE"
   sudo rm -f /usr/local/bin/piman
   sudo systemctl daemon-reload
-  
-  success "Service dibersihkan."
+  success "Service dan symlink dibersihkan."
+
   echo -ne "  Hapus folder ${DEFAULT_INSTALL_DIR}? [y/N] "
   if read_tty -n 1 -r reply; then
     echo ""
@@ -258,7 +302,7 @@ cmd_menu() {
     if ! read_tty -r opt; then
         exit 0
     fi
-    
+
     case $opt in
       1) cmd_install ;;
       2) cmd_update ;;
