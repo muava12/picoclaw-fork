@@ -140,7 +140,7 @@ WantedBy=multi-user.target"
     if [ -f "$SERVICE_FILE" ]; then
         # Cek apakah ada perubahan
         local current_content
-        current_content=$(${sudo_cmd} cat "$SERVICE_FILE")
+        current_content=$(sudo cat "$SERVICE_FILE")
         if [ "$current_content" == "$service_content" ]; then
             info "Service ${SERVICE_NAME} sudah sesuai (tidak ada perubahan)."
             return
@@ -152,9 +152,9 @@ WantedBy=multi-user.target"
         info "Membuat service systemd baru: ${SERVICE_NAME}"
     fi
 
-    echo "$service_content" | ${sudo_cmd} tee "$SERVICE_FILE" > /dev/null
-    ${sudo_cmd} systemctl daemon-reload
-    ${sudo_cmd} systemctl enable "$SERVICE_NAME"
+    echo "$service_content" | sudo tee "$SERVICE_FILE" > /dev/null
+    sudo systemctl daemon-reload
+    sudo systemctl enable "$SERVICE_NAME"
     success "Service ${SERVICE_NAME} berhasil dikonfigurasi."
 }
 
@@ -176,22 +176,22 @@ manage_service() {
         stop)
             if systemctl is-active --quiet "$SERVICE_NAME"; then
                 info "Menghentikan service ${SERVICE_NAME}..."
-                ${sudo_cmd} systemctl stop "$SERVICE_NAME"
+                sudo systemctl stop "$SERVICE_NAME"
             fi
             ;;
         start)
             info "Menjalankan service ${SERVICE_NAME}..."
-            ${sudo_cmd} systemctl start "$SERVICE_NAME"
+            sudo systemctl start "$SERVICE_NAME"
             ;;
         restart)
             info "Me-restart service ${SERVICE_NAME}..."
-            ${sudo_cmd} systemctl restart "$SERVICE_NAME"
+            sudo systemctl restart "$SERVICE_NAME"
             ;;
         disable)
             info "Menonaktifkan service ${SERVICE_NAME}..."
-            ${sudo_cmd} systemctl disable "$SERVICE_NAME" >/dev/null 2>&1 || true
-            ${sudo_cmd} rm -f "$SERVICE_FILE"
-            ${sudo_cmd} systemctl daemon-reload
+            sudo systemctl disable "$SERVICE_NAME" >/dev/null 2>&1 || true
+            sudo rm -f "$SERVICE_FILE"
+            sudo systemctl daemon-reload
             ;;
     esac
 }
@@ -222,15 +222,6 @@ cmd_install() {
 
     local dest="${INSTALL_DIR}/${BINARY_NAME}"
 
-    # Pastikan direktori instalasi ada
-    mkdir -p "$INSTALL_DIR"
-
-    # Migrasi: hapus binary lama di /usr/local/bin jika ada
-    if [ -f "/usr/local/bin/${BINARY_NAME}" ]; then
-        info "Menghapus binary lama di /usr/local/bin..."
-        sudo rm -f "/usr/local/bin/${BINARY_NAME}"
-    fi
-
     # Stop proses launcher jika sedang berjalan (baik via binary langsung atau service)
     manage_service stop
     if pgrep -x "$BINARY_NAME" &>/dev/null; then
@@ -239,6 +230,9 @@ cmd_install() {
         sleep 1
     fi
 
+    # Ensure INSTALL_DIR exists
+    mkdir -p "$INSTALL_DIR"
+
     download_launcher "$version" "$os_arch" "$dest" || return 1
 
     setup_systemd_service
@@ -246,15 +240,6 @@ cmd_install() {
 
     echo ""
     success "PicoClaw Launcher berhasil dipasang di ${W}${dest}${X}"
-
-    # PATH setup
-    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
-        info "Menambahkan $INSTALL_DIR ke PATH..."
-        [ -f "$HOME/.bashrc" ] && ! grep -q "$INSTALL_DIR" "$HOME/.bashrc" && echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$HOME/.bashrc"
-        [ -f "$HOME/.zshrc" ] && ! grep -q "$INSTALL_DIR" "$HOME/.zshrc" && echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$HOME/.zshrc"
-        export PATH="$PATH:$INSTALL_DIR"
-    fi
-
     info "Jalankan dengan: ${W}${BINARY_NAME}${X}"
     info "Buka browser ke: ${W}http://localhost:18800${X}"
     echo ""
@@ -284,15 +269,6 @@ cmd_update() {
 
     local dest="${INSTALL_DIR}/${BINARY_NAME}"
 
-    # Pastikan direktori instalasi ada
-    mkdir -p "$INSTALL_DIR"
-
-    # Migrasi: hapus binary lama di /usr/local/bin jika ada
-    if [ -f "/usr/local/bin/${BINARY_NAME}" ]; then
-        info "Menghapus binary lama di /usr/local/bin..."
-        sudo rm -f "/usr/local/bin/${BINARY_NAME}"
-    fi
-
     # Stop launcher jika berjalan
     manage_service stop
     if pgrep -x "$BINARY_NAME" &>/dev/null; then
@@ -300,6 +276,9 @@ cmd_update() {
         pkill -x "$BINARY_NAME" || true
         sleep 1
     fi
+
+    # Ensure INSTALL_DIR exists
+    mkdir -p "$INSTALL_DIR"
 
     download_launcher "$version" "$os_arch" "$dest" || return 1
 
