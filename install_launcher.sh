@@ -39,6 +39,23 @@ need_sudo() {
     fi
 }
 
+# Early sudo authentication to avoid failing later in a pipe
+require_sudo_early() {
+    if ! sudo -n true 2>/dev/null; then
+        info "Akses sudo diperlukan untuk manajemen service systemd."
+        if [ -c /dev/tty ]; then
+            sudo -S true < /dev/tty 2>/dev/null
+        else
+            sudo -v
+        fi
+        if ! sudo -n true 2>/dev/null; then
+            err "Gagal mendapatkan akses sudo. Service tidak dapat diatur."
+        else
+            success "Akses sudo berhasil."
+        fi
+    fi
+}
+
 detect_os_arch() {
     local os arch
     os=$(uname -s | tr '[:upper:]' '[:lower:]')
@@ -203,6 +220,9 @@ cmd_install() {
     info "${BOLD}Instalasi PicoClaw Launcher...${X}"
     echo ""
 
+    # Ensure we have sudo rights early before downloading anything
+    require_sudo_early
+
     local os_arch
     os_arch=$(detect_os_arch) || return 1
     info "Terdeteksi: ${G}${os_arch}${X}"
@@ -249,6 +269,9 @@ cmd_update() {
     banner
     info "Memeriksa pembaruan launcher..."
     echo ""
+
+    # Ensure we have sudo rights early before stopping services
+    require_sudo_early
 
     local os_arch
     os_arch=$(detect_os_arch) || return 1
@@ -305,6 +328,8 @@ cmd_uninstall() {
         info "Dibatalkan."
         return
     fi
+    
+    require_sudo_early
 
     # Stop proses jika berjalan
     manage_service stop
