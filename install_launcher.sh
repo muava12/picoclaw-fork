@@ -246,8 +246,8 @@ cmd_update() {
 
     download_launcher "$version" "$os_arch" "$dest" || return 1
 
-    # Update service jika belum ada (misal dari instalasi lama)
-    if is_systemd_available && [ ! -f "$SERVICE_FILE" ]; then
+    # Update service jika ada systemd (memastikan config terbaru diterapkan)
+    if is_systemd_available; then
         setup_systemd_service
     fi
     manage_service start
