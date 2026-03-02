@@ -41,15 +41,31 @@ need_sudo() {
 
 # Early sudo authentication to avoid failing later in a pipe
 require_sudo_early() {
-    if ! sudo -n true 2>/dev/null; then
-        echo -ne "  ${Y}⚠${X} Akses sudo diperlukan untuk manajemen service systemd.\n"
-        # Let sudo handle its own TTY allocation for prompting
+    # If we already have sudo without password, great.
+    if sudo -n true 2>/dev/null; then
+        return 0
+    fi
+
+    echo -ne "  ${Y}⚠${X} Akses sudo diperlukan untuk manajemen service systemd.\n"
+    
+    # Force sudo to prompt interactively, even if piped
+    if [ -t 0 ]; then
+        # Interactive standard input
         sudo -p "  🔑 Masukkan password sudo untuk %u: " -v
-        if ! sudo -n true 2>/dev/null; then
-            err "Gagal mendapatkan akses sudo. Service tidak dapat diatur."
-        else
-            success "Akses sudo berhasil."
-        fi
+    elif [ -c /dev/tty ]; then
+        # Piped, but /dev/tty exists (standard curl | bash scenario)
+        sudo -p "  🔑 Masukkan password sudo untuk %u: " -v < /dev/tty
+    else
+        # No TTY available at all (e.g. cron or bad SSH)
+        sudo -v
+    fi
+
+    if ! sudo -n true 2>/dev/null; then
+        err "Gagal mendapatkan akses sudo. Service tidak dapat diatur."
+        # Don't exit here, let the script attempt to download at least.
+        # Systemd steps will fail later, but the binary will be installed.
+    else
+        success "Akses sudo berhasil."
     fi
 }
 
