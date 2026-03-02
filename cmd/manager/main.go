@@ -325,7 +325,7 @@ func (m *Manager) getInstalledVersion() string {
 func (m *Manager) CheckUpdate() map[string]interface{} {
 	installed := m.getInstalledVersion()
 	
-	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/releases/latest", m.Repo))
+	resp, err := http.Get(fmt.Sprintf("https://api.github.com/repos/%s/releases", m.Repo))
 	if err != nil {
 		return map[string]interface{}{
 			"installed_version": installed,
@@ -336,11 +336,11 @@ func (m *Manager) CheckUpdate() map[string]interface{} {
 	}
 	defer resp.Body.Close()
 
-	var releaseData struct {
+	var releases []struct {
 		TagName string `json:"tag_name"`
 		HtmlUrl string `json:"html_url"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&releaseData); err != nil {
+	if err := json.NewDecoder(resp.Body).Decode(&releases); err != nil {
 		return map[string]interface{}{
 			"installed_version": installed,
 			"latest_version":    nil,
@@ -349,14 +349,25 @@ func (m *Manager) CheckUpdate() map[string]interface{} {
 		}
 	}
 
-	latest := strings.TrimPrefix(releaseData.TagName, "v")
+	var latestPicoClawTag string
+	var latestPicoClawURL string
+	for _, r := range releases {
+		// Abaikan release untuk piman dan pilaunch
+		if !strings.HasPrefix(r.TagName, "piman-") && !strings.HasPrefix(r.TagName, "pilaunch-") {
+			latestPicoClawTag = r.TagName
+			latestPicoClawURL = r.HtmlUrl
+			break
+		}
+	}
+
+	latest := strings.TrimPrefix(latestPicoClawTag, "v")
 	updateAvailable := installed != latest && latest != ""
 
 	return map[string]interface{}{
 		"installed_version": installed,
 		"latest_version":    latest,
 		"update_available":  updateAvailable,
-		"release_url":       releaseData.HtmlUrl,
+		"release_url":       latestPicoClawURL,
 	}
 }
 
