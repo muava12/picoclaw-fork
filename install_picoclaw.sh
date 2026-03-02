@@ -71,12 +71,32 @@ get_latest_version() {
         | grep -v 'piman\|pilaunch' \
         | sed -E 's/.*"tag_name": "([^"]+)".*/\1/')
 
-    # Sort by numeric suffix after last '-' (handles fork-0.24 > fork-0.9 correctly)
-    echo "$tags" | grep 'fork-' \
-        | awk -F'[.-]' '{n=$NF+0; print n, $0}' \
-        | sort -k1,1n \
-        | tail -n 1 \
-        | cut -d' ' -f2-
+    if [[ "$repo" == *"fork"* ]]; then
+        # Sort by numeric suffix after last '-' (handles fork-0.24 > fork-0.9 correctly)
+        echo "$tags" | grep 'fork-' \
+            | awk -F'[.-]' '{n=$NF+0; print n, $0}' \
+            | sort -k1,1n \
+            | tail -n 1 \
+            | cut -d' ' -f2-
+    else
+        # Standard SemVer sort for original repo
+        echo "$tags" | sort -V | tail -n 1
+    fi
+}
+
+fetch_versions() {
+    # Installed version
+    local inst_path
+    inst_path=$(command -v picoclaw 2>/dev/null || echo "$DEFAULT_INSTALL_DIR/picoclaw")
+    CUR_VER="(tidak terpasang)"
+    if [ -x "$inst_path" ]; then
+        CUR_VER=$("$inst_path" --version 2>/dev/null | head -n 1 || echo "unknown")
+    fi
+
+    # Latest versions (fetch once)
+    info "Menyisir info rilis..."
+    LATEST_FORK=$(get_latest_version "muava12/picoclaw-fork")
+    LATEST_ORIG=$(get_latest_version "sipeed/picoclaw")
 }
 
 detect_arch() {
@@ -258,33 +278,44 @@ cmd_onboard() {
 }
 
 cmd_menu() {
+  fetch_versions
+  
   while true; do
     banner
-    echo -e "  ${BOLD}Aksi Utama:${X}"
+    echo -e "  ${BOLD}Status Sistem:${X}"
+    echo -e "  Terpasang : ${W}${CUR_VER% (fork*)}${X}"
+    echo -e "  Rilis Fork: ${G}${LATEST_FORK}${X}"
+    echo -e "  Rilis Orig: ${C}${LATEST_ORIG}${X}"
     echo ""
-    echo -e "  ${G}1)${X} Install / Reinstall"
-    echo -e "  ${G}2)${X} Check Status / Version"
-    echo -e "  ${B}3)${X} Check For Updates"
-    echo -e "  ${B}4)${X} Run Onboard Wizard"
-    echo -e "  ${R}5)${X} Uninstall Binary"
+
+    echo -e "  ${BOLD}Aksi Utama:${X}"
+    echo -e "  ${G}1)${X} Update / Reinstall ${BOLD}Fork${X} (${LATEST_FORK})"
+    echo -e "  ${C}2)${X} Install / Switch ke ${BOLD}Original${X} (${LATEST_ORIG})"
+    echo -e "  ${B}3)${X} Setup / Manage ${BOLD}Manager (piman)${X}"
+    echo -e "  ${Y}4)${X} Run Onboard Wizard"
+    echo -e "  ${W}5)${X} Check Status / Full Info"
+    echo -e "  ${R}6)${X} Uninstall Binary"
     echo -e "  ${W}0)${X} Exit"
     echo ""
     echo -ne "  ${BOLD}Pilihan: ${X}"
     local opt=""
     if ! read_tty -r opt; then
-        # If read fails in menu loop, exit to prevent infinite loop
         exit 0
     fi
     
     case $opt in
-      1) cmd_install ;;
-      2) cmd_status ;;
-      3) cmd_check_update ;;
+      1) REPO="muava12/picoclaw-fork"; cmd_install ;;
+      2) REPO="sipeed/picoclaw"; cmd_install ;;
+      3) # Direct curl to setup_picoclaw_manager.sh
+         curl -fsSL https://raw.githubusercontent.com/muava12/picoclaw-fork/main/setup_picoclaw_manager.sh | bash ;;
       4) cmd_onboard ;;
-      5) cmd_uninstall ;;
+      5) cmd_status ;;
+      6) cmd_uninstall ;;
       0) banner; exit 0 ;;
       *) warn "Pilihan tidak valid."; sleep 1 ;;
     esac
+    # Refresh versions after potential install/update
+    [ "$opt" == "1" ] || [ "$opt" == "2" ] || [ "$opt" == "6" ] && fetch_versions
   done
 }
 
