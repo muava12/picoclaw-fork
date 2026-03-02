@@ -49,7 +49,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "  %s ./config.json             Specify a config file\n", os.Args[0])
 		fmt.Fprintf(
 			os.Stderr,
-			"  %s -public ./config.json     Allow access from other devices on the network\n",
+			"  %s --public ./config.json    Allow access from other devices on the network\n",
 			os.Args[0],
 		)
 	}

@@ -116,7 +116,7 @@ After=network.target
 [Service]
 Type=simple
 User=${user_name}
-ExecStart=${INSTALL_DIR}/${BINARY_NAME} -public
+ExecStart=${INSTALL_DIR}/${BINARY_NAME} --public
 Restart=always
 RestartSec=5
 Environment=HOME=${home_dir}
@@ -220,7 +220,7 @@ cmd_update() {
     # Versi terpasang
     local installed_ver="(tidak terpasang)"
     if command -v "$BINARY_NAME" &>/dev/null; then
-        installed_ver=$("$BINARY_NAME" -version 2>/dev/null | head -n 1)
+        installed_ver=$("$BINARY_NAME" --version 2>/dev/null | head -n 1)
         [ -z "$installed_ver" ] && installed_ver="unknown (versi lama)"
     fi
     info "Terpasang: ${Y}${installed_ver}${X}"
@@ -300,7 +300,7 @@ cmd_status() {
     local dest="${INSTALL_DIR}/${BINARY_NAME}"
     if [ -f "$dest" ]; then
         local ver
-        ver=$("$dest" -version 2>/dev/null | head -n 1)
+        ver=$("$dest" --version 2>/dev/null | head -n 1)
         [ -z "$ver" ] && ver="unknown"
         success "Binary: ${W}${dest}${X}"
         info "Versi  : ${G}${ver}${X}"
