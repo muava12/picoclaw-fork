@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -20,11 +21,12 @@ import (
 )
 
 var (
-	version            = "0.0.4"
-	defaultPort        = 8321
-	defaultRepo        = "muava12/picoclaw-fork"
-	defaultPicoClawBin = filepath.Join(getHomeDir(), ".local", "bin", "picoclaw")
-	defaultConfigPath  = filepath.Join(getHomeDir(), ".picoclaw", "config.json")
+	version               = "0.0.4"
+	defaultPort           = 8321
+	defaultRepo           = "muava12/picoclaw-fork"
+	defaultPicoClawBin    = filepath.Join(getHomeDir(), ".local", "bin", "picoclaw")
+	defaultConfigPath     = filepath.Join(getHomeDir(), ".picoclaw", "config.json")
+	defaultGatewayPort    = 18790 // default port picoclaw gateway
 )
 
 func getHomeDir() string {
@@ -36,6 +38,7 @@ type Manager struct {
 	PicoClawBin string
 	ConfigPath  string
 	Repo        string
+	GatewayPort int // port picoclaw gateway, default 18790
 
 	mu          sync.Mutex
 	cmd         *exec.Cmd
@@ -44,39 +47,67 @@ type Manager struct {
 	maxLogLines int
 }
 
-func NewManager(bin, config, repo string) *Manager {
+func NewManager(bin, config, repo string, gatewayPort int) *Manager {
+	if gatewayPort == 0 {
+		gatewayPort = defaultGatewayPort
+	}
 	return &Manager{
 		PicoClawBin: bin,
 		ConfigPath:  config,
 		Repo:        repo,
+		GatewayPort: gatewayPort,
 		maxLogLines: 100,
 		logTail:     make([]string, 0),
 	}
 }
 
+// IsRunning checks if the picoclaw gateway is running by hitting its /health endpoint.
+// This works regardless of whether the process was started by this manager or by the launcher.
 func (m *Manager) IsRunning() bool {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	return m.cmd != nil && m.cmd.Process != nil && m.cmd.ProcessState == nil
+	client := http.Client{Timeout: 2 * time.Second}
+	resp, err := client.Get(fmt.Sprintf("http://127.0.0.1:%d/health", m.GatewayPort))
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
 }
 
 func (m *Manager) Status() map[string]interface{} {
 	running := m.IsRunning()
-	
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	var pid *int
 	var uptime *int
 	var startedAt *string
+	var startedBy string
 
-	if running && m.cmd != nil && m.cmd.Process != nil {
-		p := m.cmd.Process.Pid
-		pid = &p
-		u := int(time.Since(m.startedAt).Seconds())
-		uptime = &u
-		s := m.startedAt.Format(time.RFC3339)
-		startedAt = &s
+	if running {
+		if m.cmd != nil && m.cmd.Process != nil {
+			// Process was started by this manager
+			p := m.cmd.Process.Pid
+			pid = &p
+			u := int(time.Since(m.startedAt).Seconds())
+			uptime = &u
+			s := m.startedAt.Format(time.RFC3339)
+			startedAt = &s
+			startedBy = "manager"
+		} else {
+			// Process was started by the launcher — get PID via pgrep
+			startedBy = "launcher"
+			out, err := exec.Command("pgrep", "-f", "picoclaw gateway").Output()
+			if err == nil {
+				pidStr := strings.TrimSpace(string(out))
+				// pgrep may return multiple PIDs; take the first
+				if lines := strings.Split(pidStr, "\n"); len(lines) > 0 {
+					if p, err := strconv.Atoi(strings.TrimSpace(lines[0])); err == nil {
+						pid = &p
+					}
+				}
+			}
+		}
 	}
 
 	tail := m.logTail
@@ -89,50 +120,75 @@ func (m *Manager) Status() map[string]interface{} {
 		"pid":            pid,
 		"started_at":     startedAt,
 		"uptime_seconds": uptime,
+		"started_by":     startedBy,
 		"binary":         m.PicoClawBin,
 		"recent_logs":    tail,
 	}
 }
 
 func (m *Manager) Start() map[string]interface{} {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.cmd != nil && m.cmd.Process != nil && m.cmd.ProcessState == nil {
+	// Check via HTTP health — detects process started by any source (manager or launcher)
+	if m.IsRunning() {
 		return map[string]interface{}{
 			"success": false,
-			"message": "PicoClaw gateway sudah berjalan",
-			"pid":     m.cmd.Process.Pid,
+			"message": "PicoClaw gateway sudah berjalan (dideteksi via health check)",
 		}
 	}
 
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	return m.startProcess()
 }
 
 func (m *Manager) Stop() map[string]interface{} {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	if m.cmd == nil || m.cmd.Process == nil || m.cmd.ProcessState != nil {
+	// Check via HTTP health — works regardless of who started the process
+	if !m.IsRunning() {
 		return map[string]interface{}{
 			"success": true,
 			"message": "PicoClaw gateway tidak sedang berjalan",
 		}
 	}
 
-	return m.stopProcess()
-}
-
-func (m *Manager) Restart() map[string]interface{} {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
+	// If we own the process — use graceful stopProcess()
 	if m.cmd != nil && m.cmd.Process != nil && m.cmd.ProcessState == nil {
-		m.stopProcess()
-		time.Sleep(1 * time.Second)
+		return m.stopProcess()
 	}
 
-	return m.startProcess()
+	// Process was started by the launcher — use pkill as fallback
+	var err error
+	switch {
+	case isWindows():
+		psCmd := `Get-WmiObject Win32_Process | Where-Object { $_.CommandLine -match 'picoclaw.*gateway' } | ForEach-Object { Stop-Process $_.ProcessId -Force }`
+		err = exec.Command("powershell", "-Command", psCmd).Run()
+	default:
+		err = exec.Command("pkill", "-f", "picoclaw gateway").Run()
+	}
+
+	if err != nil {
+		return map[string]interface{}{
+			"success": false,
+			"message": fmt.Sprintf("Gagal menghentikan gateway: %v", err),
+		}
+	}
+	return map[string]interface{}{
+		"success": true,
+		"message": "PicoClaw gateway berhasil dihentikan (via pkill)",
+	}
+}
+
+func (m *Manager) Restart() map[string]interface{} {
+	stopResult := m.Stop()
+	if success, _ := stopResult["success"].(bool); !success {
+		// If stop failed for reason other than "not running", report it
+		if msg, _ := stopResult["message"].(string); !strings.Contains(msg, "tidak sedang berjalan") {
+			return stopResult
+		}
+	}
+	time.Sleep(1 * time.Second)
+	return m.Start()
 }
 
 func (m *Manager) startProcess() map[string]interface{} {
@@ -337,10 +393,14 @@ func (m *Manager) Update() map[string]interface{} {
 	}
 }
 
+func isWindows() bool {
+	return strings.Contains(strings.ToLower(os.Getenv("OS")), "windows")
+}
+
 // ── HTTP API Server ──────────────────────────────────
 
 func startServer(args Config) {
-	manager := NewManager(args.PicoclawBin, args.ConfigPath, defaultRepo)
+	manager := NewManager(args.PicoclawBin, args.ConfigPath, defaultRepo, args.GatewayPort)
 
 	if args.AutoStart {
 		manager.Start()
@@ -530,6 +590,7 @@ type Config struct {
 	PicoclawBin string
 	ConfigPath  string
 	AutoStart   bool
+	GatewayPort int // port picoclaw gateway untuk health check, default 18790
 }
 
 func main() {
@@ -554,6 +615,7 @@ func main() {
 	binPath := fs.String("picoclaw-bin", defaultPicoClawBin, "Path ke binary picoclaw")
 	configPath := fs.String("config", defaultConfigPath, "Path ke config.json")
 	autoStart := fs.Bool("auto-start", false, "Otomatis start PicoClaw gateway saat server dimulai")
+	gatewayPort := fs.Int("gateway-port", defaultGatewayPort, "Port picoclaw gateway (untuk health check)")
 
 	// remove "server" from args if present
 	args := os.Args[1:]
@@ -569,6 +631,7 @@ func main() {
 		PicoclawBin: *binPath,
 		ConfigPath:  *configPath,
 		AutoStart:   *autoStart,
+		GatewayPort: *gatewayPort,
 	}
 
 	startServer(cfg)

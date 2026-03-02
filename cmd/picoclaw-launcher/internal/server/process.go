@@ -26,11 +26,13 @@ func RegisterProcessAPI(mux *http.ServeMux, absPath string) {
 	mux.HandleFunc("GET /api/process/status", func(w http.ResponseWriter, r *http.Request) {
 		handleStatusGateway(w, r, absPath)
 	})
-	mux.HandleFunc("POST /api/process/start", handleStartGateway)
+	mux.HandleFunc("POST /api/process/start", func(w http.ResponseWriter, r *http.Request) {
+		handleStartGateway(w, r, absPath)
+	})
 	mux.HandleFunc("POST /api/process/stop", handleStopGateway)
 }
 
-func handleStartGateway(w http.ResponseWriter, r *http.Request) {
+func handleStartGateway(w http.ResponseWriter, r *http.Request, absPath string) {
 	// Locate picoclaw executable:
 	// 1. Try same directory as current executable
 	// 2. Fallback to just "picoclaw" (relies on $PATH)
@@ -45,6 +47,32 @@ func handleStartGateway(w http.ResponseWriter, r *http.Request) {
 
 		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
 			execPath = candidate
+		}
+	}
+
+	// Guard: check if gateway is already running (started by manager or any other process)
+	// before spawning a new instance that would fail to bind the port.
+	// Read port from config (same logic as handleStatusGateway)
+	host := "127.0.0.1"
+	port := 18790
+	if cfg, cfgErr := config.LoadConfig(absPath); cfgErr == nil && cfg != nil {
+		if cfg.Gateway.Host != "" && cfg.Gateway.Host != "0.0.0.0" {
+			host = cfg.Gateway.Host
+		}
+		if cfg.Gateway.Port != 0 {
+			port = cfg.Gateway.Port
+		}
+	}
+	healthURL := fmt.Sprintf("http://%s/health", net.JoinHostPort(host, strconv.Itoa(port)))
+	if hc, herr := (&http.Client{Timeout: 2 * time.Second}).Get(healthURL); herr == nil {
+		hc.Body.Close()
+		if hc.StatusCode == http.StatusOK {
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]any{
+				"status":  "already_running",
+				"message": "picoclaw gateway sudah berjalan (dideteksi via health check)",
+			})
+			return
 		}
 	}
 
