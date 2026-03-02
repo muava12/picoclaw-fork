@@ -383,7 +383,7 @@ cmd_notify() {
 
     # Send to ntfy via shared helper (export NTFY_TOPIC from our own config)
     if [ -f "$NTFY_SEND" ]; then
-        NTFY_TOPIC="$NTFY_TOPIC" bash "$NTFY_SEND" "$message" --title "$title" --tags "$tag" --priority high 2>/dev/null || true
+        NTFY_TOPIC="$NTFY_TOPIC" bash "$NTFY_SEND" "$message" --title "$title" --tags "$tag" --priority high >/dev/null 2>&1 || true
     fi
 
     # Output for PicoClaw to send to Telegram
