@@ -101,7 +101,6 @@ setup_systemd_service() {
         return
     fi
 
-    info "Menyiapkan systemd service..."
     local sudo_cmd
     sudo_cmd=$(need_sudo)
     local user_name
@@ -124,10 +123,25 @@ Environment=HOME=${home_dir}
 [Install]
 WantedBy=multi-user.target"
 
+    if [ -f "$SERVICE_FILE" ]; then
+        # Cek apakah ada perubahan
+        local current_content
+        current_content=$(${sudo_cmd} cat "$SERVICE_FILE")
+        if [ "$current_content" == "$service_content" ]; then
+            info "Service ${SERVICE_NAME} sudah sesuai (tidak ada perubahan)."
+            return
+        else
+            warn "Terdeteksi perubahan pada konfigurasi service."
+            info "Memperbarui ${SERVICE_FILE}..."
+        fi
+    else
+        info "Membuat service systemd baru: ${SERVICE_NAME}"
+    fi
+
     echo "$service_content" | ${sudo_cmd} tee "$SERVICE_FILE" > /dev/null
     ${sudo_cmd} systemctl daemon-reload
     ${sudo_cmd} systemctl enable "$SERVICE_NAME"
-    success "Service ${SERVICE_NAME} berhasil dikonfigurasi dan diaktifkan."
+    success "Service ${SERVICE_NAME} berhasil dikonfigurasi."
 }
 
 manage_service() {
