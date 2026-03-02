@@ -7,6 +7,8 @@
 REPO="muava12/picoclaw-fork"
 BINARY_NAME="picoclaw-launcher"
 INSTALL_DIR="/usr/local/bin"
+SERVICE_NAME="pilaunch"
+SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
 # ── Warna & UI ────────────────────────────────────
 R='\033[0;31m' G='\033[0;32m' B='\033[0;34m'
@@ -85,6 +87,87 @@ download_launcher() {
     ${sudo_cmd} chmod +x "$dest"
 }
 
+# ── Service Management ──────────────────────────
+
+is_systemd_available() {
+    if command -v systemctl >/dev/null 2>&1 && systemctl --version >/dev/null 2>&1; then
+        return 0
+    fi
+    return 1
+}
+
+setup_systemd_service() {
+    if ! is_systemd_available; then
+        return
+    fi
+
+    info "Menyiapkan systemd service..."
+    local sudo_cmd
+    sudo_cmd=$(need_sudo)
+    local user_name
+    user_name=$(whoami)
+    local home_dir
+    home_dir=$HOME
+
+    local service_content="[Unit]
+Description=PicoClaw Launcher Service
+After=network.target
+
+[Service]
+Type=simple
+User=${user_name}
+ExecStart=${INSTALL_DIR}/${BINARY_NAME}
+Restart=always
+RestartSec=5
+Environment=HOME=${home_dir}
+
+[Install]
+WantedBy=multi-user.target"
+
+    echo "$service_content" | ${sudo_cmd} tee "$SERVICE_FILE" > /dev/null
+    ${sudo_cmd} systemctl daemon-reload
+    ${sudo_cmd} systemctl enable "$SERVICE_NAME"
+    success "Service ${SERVICE_NAME} berhasil dikonfigurasi dan diaktifkan."
+}
+
+manage_service() {
+    local action="$1"
+    if ! is_systemd_available; then
+        return
+    fi
+    
+    local sudo_cmd
+    sudo_cmd=$(need_sudo)
+    
+    # Cek jika service file ada sebelum menjalankan command
+    if [ ! -f "$SERVICE_FILE" ]; then
+        return
+    fi
+
+    case "$action" in
+        stop)
+            if systemctl is-active --quiet "$SERVICE_NAME"; then
+                info "Menghentikan service ${SERVICE_NAME}..."
+                ${sudo_cmd} systemctl stop "$SERVICE_NAME"
+            fi
+            ;;
+        start)
+            info "Menjalankan service ${SERVICE_NAME}..."
+            ${sudo_cmd} systemctl start "$SERVICE_NAME"
+            ;;
+        restart)
+            info "Me-restart service ${SERVICE_NAME}..."
+            ${sudo_cmd} systemctl restart "$SERVICE_NAME"
+            ;;
+        disable)
+            info "Menonaktifkan service ${SERVICE_NAME}..."
+            ${sudo_cmd} systemctl disable "$SERVICE_NAME" >/dev/null 2>&1 || true
+            ${sudo_cmd} rm -f "$SERVICE_FILE"
+            ${sudo_cmd} systemctl daemon-reload
+            ;;
+    esac
+}
+
 # ── Commands ──────────────────────────────────────
 
 cmd_install() {
@@ -106,7 +189,8 @@ cmd_install() {
 
     local dest="${INSTALL_DIR}/${BINARY_NAME}"
 
-    # Stop proses launcher jika sedang berjalan
+    # Stop proses launcher jika sedang berjalan (baik via binary langsung atau service)
+    manage_service stop
     if pgrep -x "$BINARY_NAME" &>/dev/null; then
         info "Menghentikan launcher yang sedang berjalan..."
         pkill -x "$BINARY_NAME" || true
@@ -114,6 +198,9 @@ cmd_install() {
     fi
 
     download_launcher "$version" "$os_arch" "$dest" || return 1
+
+    setup_systemd_service
+    manage_service start
 
     echo ""
     success "PicoClaw Launcher berhasil dipasang di ${W}${dest}${X}"
@@ -149,6 +236,7 @@ cmd_update() {
     local dest="${INSTALL_DIR}/${BINARY_NAME}"
 
     # Stop launcher jika berjalan
+    manage_service stop
     if pgrep -x "$BINARY_NAME" &>/dev/null; then
         info "Menghentikan launcher yang sedang berjalan..."
         pkill -x "$BINARY_NAME" || true
@@ -156,6 +244,12 @@ cmd_update() {
     fi
 
     download_launcher "$version" "$os_arch" "$dest" || return 1
+
+    # Update service jika belum ada (misal dari instalasi lama)
+    if is_systemd_available && [ ! -f "$SERVICE_FILE" ]; then
+        setup_systemd_service
+    fi
+    manage_service start
 
     success "Update selesai → ${W}${version}${X}"
     echo ""
@@ -176,6 +270,8 @@ cmd_uninstall() {
     fi
 
     # Stop proses jika berjalan
+    manage_service stop
+    manage_service disable
     if pgrep -x "$BINARY_NAME" &>/dev/null; then
         info "Menghentikan launcher..."
         pkill -x "$BINARY_NAME" || true
@@ -210,11 +306,19 @@ cmd_status() {
         warn "Binary tidak terpasang."
     fi
 
+    if is_systemd_available; then
+        if systemctl is-active --quiet "$SERVICE_NAME"; then
+            success "Service : ${G}Active${X} (${SERVICE_NAME}.service)"
+        else
+            info "Service : ${Y}Inactive${X} (${SERVICE_NAME}.service)"
+        fi
+    fi
+
     if pgrep -x "$BINARY_NAME" &>/dev/null; then
-        success "Proses : ${G}Berjalan${X} (PID: $(pgrep -x "$BINARY_NAME" | head -1))"
-        info "UI     : ${W}http://localhost:18800${X}"
+        success "Proses  : ${G}Berjalan${X} (PID: $(pgrep -x "$BINARY_NAME" | head -1))"
+        info "UI      : ${W}http://localhost:18800${X}"
     else
-        info "Proses : ${Y}Tidak berjalan${X}"
+        info "Proses  : ${Y}Tidak berjalan${X}"
     fi
     echo ""
 }
