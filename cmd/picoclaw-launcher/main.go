@@ -36,14 +36,19 @@ const Version = "v0.0.1"
 
 func main() {
 	public := flag.Bool("public", false, "Listen on all interfaces (0.0.0.0) instead of localhost only")
+	flag.BoolVar(public, "p", false, "Alias for --public")
+
 	version := flag.Bool("version", false, "Print version information and exit")
+	flag.BoolVar(version, "v", false, "Alias for --version")
+
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "PicoClaw Launcher - A web-based configuration editor\n\n")
 		fmt.Fprintf(os.Stderr, "Usage: %s [options] [config.json]\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "Arguments:\n")
 		fmt.Fprintf(os.Stderr, "  config.json    Path to the configuration file (default: ~/.picoclaw/config.json)\n\n")
 		fmt.Fprintf(os.Stderr, "Options:\n")
-		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "  -p, --public   Listen on all interfaces (0.0.0.0) instead of localhost only\n")
+		fmt.Fprintf(os.Stderr, "  -v, --version  Print version information and exit\n")
 		fmt.Fprintf(os.Stderr, "\nExamples:\n")
 		fmt.Fprintf(os.Stderr, "  %s                          Use default config path\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "  %s ./config.json             Specify a config file\n", os.Args[0])
