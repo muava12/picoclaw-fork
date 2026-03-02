@@ -6,7 +6,7 @@
 
 REPO="muava12/picoclaw-fork"
 BINARY_NAME="picoclaw-launcher"
-INSTALL_DIR="/usr/local/bin"
+INSTALL_DIR="$HOME/.local/bin"
 SERVICE_NAME="pilaunch"
 SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
 
@@ -222,6 +222,15 @@ cmd_install() {
 
     local dest="${INSTALL_DIR}/${BINARY_NAME}"
 
+    # Pastikan direktori instalasi ada
+    mkdir -p "$INSTALL_DIR"
+
+    # Migrasi: hapus binary lama di /usr/local/bin jika ada
+    if [ -f "/usr/local/bin/${BINARY_NAME}" ]; then
+        info "Menghapus binary lama di /usr/local/bin..."
+        sudo rm -f "/usr/local/bin/${BINARY_NAME}"
+    fi
+
     # Stop proses launcher jika sedang berjalan (baik via binary langsung atau service)
     manage_service stop
     if pgrep -x "$BINARY_NAME" &>/dev/null; then
@@ -237,6 +246,15 @@ cmd_install() {
 
     echo ""
     success "PicoClaw Launcher berhasil dipasang di ${W}${dest}${X}"
+
+    # PATH setup
+    if [[ ":$PATH:" != *":$INSTALL_DIR:"* ]]; then
+        info "Menambahkan $INSTALL_DIR ke PATH..."
+        [ -f "$HOME/.bashrc" ] && ! grep -q "$INSTALL_DIR" "$HOME/.bashrc" && echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$HOME/.bashrc"
+        [ -f "$HOME/.zshrc" ] && ! grep -q "$INSTALL_DIR" "$HOME/.zshrc" && echo "export PATH=\"\$PATH:$INSTALL_DIR\"" >> "$HOME/.zshrc"
+        export PATH="$PATH:$INSTALL_DIR"
+    fi
+
     info "Jalankan dengan: ${W}${BINARY_NAME}${X}"
     info "Buka browser ke: ${W}http://localhost:18800${X}"
     echo ""
@@ -265,6 +283,15 @@ cmd_update() {
     echo ""
 
     local dest="${INSTALL_DIR}/${BINARY_NAME}"
+
+    # Pastikan direktori instalasi ada
+    mkdir -p "$INSTALL_DIR"
+
+    # Migrasi: hapus binary lama di /usr/local/bin jika ada
+    if [ -f "/usr/local/bin/${BINARY_NAME}" ]; then
+        info "Menghapus binary lama di /usr/local/bin..."
+        sudo rm -f "/usr/local/bin/${BINARY_NAME}"
+    fi
 
     # Stop launcher jika berjalan
     manage_service stop
