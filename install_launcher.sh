@@ -59,6 +59,20 @@ detect_os_arch() {
     echo "${os}-${arch}"
 }
 
+get_installed_version() {
+    if command -v "$BINARY_NAME" &>/dev/null; then
+        local ver
+        ver=$("$BINARY_NAME" --version 2>/dev/null | head -n 1)
+        if [ -z "$ver" ]; then
+            echo "unknown (versi lama)"
+        else
+            echo "$ver"
+        fi
+    else
+        echo "(tidak terpasang)"
+    fi
+}
+
 get_latest_launcher_version() {
     # Latest tag yang dimulai dengan "pilaunch-"
     curl -sf "https://api.github.com/repos/${REPO}/releases" | \
@@ -199,6 +213,11 @@ cmd_install() {
         err "Tidak dapat menemukan rilis launcher di GitHub."
         return 1
     fi
+    
+    local installed_ver
+    installed_ver=$(get_installed_version)
+    
+    info "Terpasang    : ${Y}${installed_ver}${X}"
     info "Versi terbaru: ${G}${version}${X}"
 
     local dest="${INSTALL_DIR}/${BINARY_NAME}"
@@ -232,11 +251,8 @@ cmd_update() {
     os_arch=$(detect_os_arch) || return 1
 
     # Versi terpasang
-    local installed_ver="(tidak terpasang)"
-    if command -v "$BINARY_NAME" &>/dev/null; then
-        installed_ver=$("$BINARY_NAME" --version 2>/dev/null | head -n 1)
-        [ -z "$installed_ver" ] && installed_ver="unknown (versi lama)"
-    fi
+    local installed_ver
+    installed_ver=$(get_installed_version)
     info "Terpasang: ${Y}${installed_ver}${X}"
 
     local version
