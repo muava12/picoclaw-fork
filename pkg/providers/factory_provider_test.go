@@ -100,8 +100,9 @@ func TestCreateProviderFromConfig_OpenAI(t *testing.T) {
 	if provider == nil {
 		t.Fatal("CreateProviderFromConfig() returned nil provider")
 	}
-	if modelID != "gpt-4o" {
-		t.Errorf("modelID = %q, want %q", modelID, "gpt-4o")
+	// When api_base is explicitly set, the full model string is preserved as-is
+	if modelID != "openai/gpt-4o" {
+		t.Errorf("modelID = %q, want %q", modelID, "openai/gpt-4o")
 	}
 }
 
@@ -185,8 +186,9 @@ func TestCreateProviderFromConfig_LiteLLM(t *testing.T) {
 	if provider == nil {
 		t.Fatal("CreateProviderFromConfig() returned nil provider")
 	}
-	if modelID != "my-proxy-alias" {
-		t.Errorf("modelID = %q, want %q", modelID, "my-proxy-alias")
+	// When api_base is explicitly set, the full model string is preserved as-is
+	if modelID != "litellm/my-proxy-alias" {
+		t.Errorf("modelID = %q, want %q", modelID, "litellm/my-proxy-alias")
 	}
 }
 
@@ -317,7 +319,8 @@ func TestCreateProviderFromConfig_RequestTimeoutPropagation(t *testing.T) {
 
 	cfg := &config.ModelConfig{
 		ModelName:      "test-timeout",
-		Model:          "openai/gpt-4o",
+		Model:          "gpt-4o",
+		APIKey:         "test-key",
 		APIBase:        server.URL,
 		RequestTimeout: 1,
 	}

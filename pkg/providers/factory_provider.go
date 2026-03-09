@@ -64,6 +64,23 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		return nil, "", fmt.Errorf("model is required")
 	}
 
+	// When api_base is explicitly set, this is a custom OpenAI-compatible endpoint.
+	// Use the full model string as-is — don't extract protocol prefix.
+	// e.g. "zai/glm-4.7-fp8" stays "zai/glm-4.7-fp8" for sumopod.com
+	if cfg.APIBase != "" && cfg.APIKey != "" {
+		protocol, _ := ExtractProtocol(cfg.Model)
+		switch protocol {
+		case "anthropic", "claude-cli", "claudecli", "codex-cli", "codexcli",
+			"github-copilot", "copilot", "antigravity":
+			// Fall through to existing protocol-specific logic below
+		default:
+			return NewHTTPProviderWithMaxTokensFieldAndRequestTimeout(
+				cfg.APIKey, cfg.APIBase, cfg.Proxy,
+				cfg.MaxTokensField, cfg.RequestTimeout,
+			), cfg.Model, nil
+		}
+	}
+
 	protocol, modelID := ExtractProtocol(cfg.Model)
 
 	switch protocol {
